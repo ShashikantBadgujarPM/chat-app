@@ -8,6 +8,7 @@ from uuid import UUID
 
 from app.modules.conversations.domain.model import (
     Conversation,
+    LastMessage,
     MemberProfile,
     MemberRole,
     Membership,
@@ -62,6 +63,12 @@ class ConversationRepositoryPort(Protocol):
     ) -> dict[UUID, tuple[int, list[MemberProfile]]]: ...
 
 
+class LastMessageReaderPort(Protocol):
+    async def latest(self, pairs: Sequence[tuple[UUID, int]]) -> dict[UUID, LastMessage]:
+        """For each (conversation_id, last_message_seq), the message at that seq."""
+        ...
+
+
 class UserDirectoryPort(Protocol):
     async def active_user_ids(self, user_ids: Sequence[UUID]) -> set[UUID]: ...
 
@@ -72,6 +79,9 @@ class ConversationsUnitOfWork(Protocol):
 
     @property
     def users(self) -> UserDirectoryPort: ...
+
+    @property
+    def last_messages(self) -> LastMessageReaderPort: ...
 
     @property
     def events(self) -> EventPublisher: ...

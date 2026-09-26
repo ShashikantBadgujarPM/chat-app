@@ -217,6 +217,7 @@ class ConversationService:
             summaries = await uow.conversations.member_summaries(
                 [c.id for c, _ in page], viewer_id=caller_id, preview_size=PREVIEW_SIZE
             )
+            latest = await uow.last_messages.latest([(c.id, c.last_message_seq) for c, _ in page])
         views = [
             ConversationView(
                 conversation=conversation,
@@ -224,6 +225,7 @@ class ConversationService:
                 member_count=summaries[conversation.id][0],
                 my_role=membership.role,
                 my_last_read_seq=membership.last_read_seq,
+                last_message=latest.get(conversation.id),
             )
             for conversation, membership in page
         ]

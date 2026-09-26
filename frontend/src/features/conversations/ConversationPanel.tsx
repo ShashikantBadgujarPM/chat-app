@@ -3,6 +3,7 @@ import type { FormEvent } from 'react'
 import { useNavigate, useOutletContext, useParams } from 'react-router-dom'
 import { ApiError } from '../../api/client'
 import { useAuth } from '../auth/AuthContext'
+import { MessagePane } from '../messages/MessagePane'
 import { UserSearch } from '../users/UserSearch'
 import { conversationName, conversationsApi } from './api'
 import type { Conversation, Member } from './api'
@@ -12,7 +13,7 @@ export function NoConversationSelected() {
   return <p className="empty">Select a conversation, or start a new one.</p>
 }
 
-/** Details and member management for one conversation. Messages arrive in M05. */
+/** One conversation: its messages, and details plus member management beside them. */
 export function ConversationPanel() {
   const { conversationId = '' } = useParams()
   const auth = useAuth()
@@ -66,8 +67,46 @@ export function ConversationPanel() {
   }
 
   return (
-    <article>
-      <h1>{conversationName(conversation, me.id)}</h1>
+    <div className="conversation">
+      <article className="conversation-main">
+        <h1>{conversationName(conversation, me.id)}</h1>
+        <MessagePane conversationId={conversation.id} myId={me.id} onSent={refresh} />
+      </article>
+      <ConversationDetails
+        conversation={conversation}
+        members={members}
+        memberIds={memberIds}
+        me={me.id}
+        isOwner={isOwner}
+        isGroup={isGroup}
+        run={run}
+        leave={leave}
+      />
+    </div>
+  )
+}
+
+function ConversationDetails({
+  conversation,
+  members,
+  memberIds,
+  me,
+  isOwner,
+  isGroup,
+  run,
+  leave,
+}: {
+  conversation: Conversation
+  members: Member[]
+  memberIds: Set<string>
+  me: string
+  isOwner: boolean
+  isGroup: boolean
+  run: (action: () => Promise<unknown>) => Promise<void>
+  leave: () => Promise<void>
+}) {
+  return (
+    <aside className="conversation-details" aria-label="Conversation details">
       {isGroup && isOwner && <RenameForm current={conversation.title ?? ''} onRename={(t) => run(() => conversationsApi.rename(conversation.id, t))} />}
 
       <h2>Members ({members.length})</h2>
@@ -76,7 +115,7 @@ export function ConversationPanel() {
           <li key={member.user.id}>
             {member.user.display_name} <small>@{member.user.username}</small>
             {member.role === 'owner' && <small> · owner</small>}
-            {isGroup && isOwner && member.user.id !== me.id && (
+            {isGroup && isOwner && member.user.id !== me && (
               <button type="button" onClick={() => run(() => conversationsApi.removeMember(conversation.id, member.user.id))}>
                 Remove
               </button>
@@ -97,7 +136,7 @@ export function ConversationPanel() {
           Leave group
         </button>
       )}
-    </article>
+    </aside>
   )
 }
 

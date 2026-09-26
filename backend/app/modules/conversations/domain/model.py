@@ -72,6 +72,17 @@ class MemberProfile:
 
 
 @dataclass(frozen=True, slots=True)
+class LastMessage:
+    """The conversation list's preview of the latest message (07 `MessageBrief`)."""
+
+    id: UUID
+    seq: int
+    sender_id: UUID | None
+    body_preview: str
+    deleted: bool
+
+
+@dataclass(frozen=True, slots=True)
 class ConversationView:
     """A conversation as one member sees it (07 `Conversation`)."""
 
@@ -80,3 +91,4 @@ class ConversationView:
     member_count: int
     my_role: MemberRole
     my_last_read_seq: int
+    last_message: LastMessage | None = None

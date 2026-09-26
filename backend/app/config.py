@@ -52,6 +52,7 @@ class Settings(BaseSettings):
     rate_limit_register_per_hour: int = Field(default=5, ge=1)
     rate_limit_refresh_per_minute: int = Field(default=30, ge=1)
     rate_limit_authenticated_per_minute: int = Field(default=300, ge=1)
+    rate_limit_message_send_per_10s: int = Field(default=30, ge=1)
 
     cookie_secure: bool = True
     allowed_origins: Annotated[list[str], NoDecode] = Field(

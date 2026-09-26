@@ -69,3 +69,10 @@ The implementation agent records spec ambiguities here ([15 §26.3](../design/15
 - **Question:** 07 sorts `GET /conversations` by `last_activity_at`, and M05 says that sort activates once messages exist, but 05 had no column for it. Computing `max(messages.created_at)` at read time can't support keyset pagination cheaply.
 - **Resolution (decided by the user):** a new column, `conversations.last_activity_at timestamptz NOT NULL DEFAULT now()`. It is set at creation, and M05 bumps it in the same `UPDATE` that increments `last_message_seq`, at no extra cost. The list pages by keyset `(last_activity_at DESC, id)`.
 - **Updated:** [05 §conversations](../design/05-database.md).
+
+## Found while implementing M05 (2026-09-26)
+
+### Q-013 Which clock stamps rows
+- **Question:** a message's `created_at` and the conversation's `last_activity_at` were written from the `Clock` port, while other rows (e.g. `conversations.created_at`) use the database default `now()`. Mixing the two made ordering inconsistent (caught by a test with a frozen clock).
+- **Resolution:** timestamps that record *when a row changed* (`created_at`, `last_activity_at`, `edited_at`, `deleted_at`) come from the database (`now()` / `func.now()`), so they share one clock. The `Clock` port is used for *domain decisions* only: lockout windows, token expiry, the refresh grace period, and later the scheduled-message "at least 30 s ahead" check (09 §16.3).
+- **Updated:** none (implementation rule; consistent with 09's "comparisons happen in the database with `now()`").

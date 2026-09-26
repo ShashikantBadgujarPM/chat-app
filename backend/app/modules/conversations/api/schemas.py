@@ -96,9 +96,19 @@ class ConversationOut(BaseModel):
         )
 
 
+class LastMessageOut(BaseModel):
+    """07 `MessageBrief`."""
+
+    id: UUID
+    seq: int
+    sender_id: UUID | None
+    body_preview: str
+    deleted: bool
+
+
 class ConversationSummaryOut(ConversationOut):
-    # Message-dependent fields are filled in by M05 (last_message) and M07 (unread).
-    last_message: None = None
+    # Unread counts are filled in by M07.
+    last_message: LastMessageOut | None = None
     unread_count: int = 0
     unread_mention_count: int = 0
     last_activity_at: UtcDateTime
@@ -107,8 +117,20 @@ class ConversationSummaryOut(ConversationOut):
     @classmethod
     def from_view(cls, view: ConversationView) -> "ConversationSummaryOut":
         base = ConversationOut.from_view(view)
+        last = view.last_message
         return cls(
             **base.model_dump(),
+            last_message=(
+                LastMessageOut(
+                    id=last.id,
+                    seq=last.seq,
+                    sender_id=last.sender_id,
+                    body_preview=last.body_preview,
+                    deleted=last.deleted,
+                )
+                if last is not None
+                else None
+            ),
             last_activity_at=view.conversation.last_activity_at,
             my_last_read_seq=view.my_last_read_seq,
         )

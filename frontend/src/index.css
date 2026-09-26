@@ -125,3 +125,96 @@ button {
 .user-search [role='option']:hover {
   background: #8882;
 }
+
+.conversation {
+  display: grid;
+  grid-template-columns: 1fr minmax(12rem, 16rem);
+  gap: 1.5rem;
+}
+
+.message-pane {
+  display: grid;
+  grid-template-rows: 1fr auto auto;
+  height: 70vh;
+}
+
+.messages {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  display: grid;
+  gap: 0.5rem;
+  align-content: start;
+}
+
+.message {
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+  background: #8881;
+}
+
+.message.mine {
+  background: #3b82f622;
+}
+
+.message p {
+  margin: 0.25rem 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.message.pending {
+  opacity: 0.6;
+}
+
+.message.pending.failed {
+  opacity: 1;
+  outline: 1px solid #b00020;
+}
+
+.message-actions {
+  display: flex;
+  gap: 0.75rem;
+  font-size: 0.85em;
+}
+
+.reply-preview {
+  margin: 0.25rem 0;
+  padding-left: 0.5rem;
+  border-left: 3px solid #8886;
+  opacity: 0.8;
+}
+
+.composer {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.5rem;
+  max-width: none;
+  margin-top: 0.5rem;
+}
+
+.composer .replying-to {
+  grid-column: 1 / -1;
+  font-size: 0.9em;
+}
+
+.composer textarea {
+  font: inherit;
+  padding: 0.5rem;
+  resize: vertical;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+@media (max-width: 56rem) {
+  .conversation {
+    grid-template-columns: 1fr;
+  }
+}
