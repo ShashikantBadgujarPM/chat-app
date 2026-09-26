@@ -50,6 +50,12 @@ class ConversationRepositoryPort(Protocol):
 
     async def set_muted(self, conversation_id: UUID, user_id: UUID, muted: bool) -> None: ...
 
+    async def advance_read_cursor(
+        self, conversation_id: UUID, user_id: UUID, last_read_seq: int
+    ) -> tuple[int, bool]: ...
+
+    async def read_cursors(self, conversation_id: UUID) -> dict[UUID, int]: ...
+
     async def count_active_members(self, conversation_id: UUID) -> int: ...
 
     async def active_member_ids(self, conversation_id: UUID) -> list[UUID]: ...
@@ -67,6 +73,10 @@ class LastMessageReaderPort(Protocol):
     async def latest(self, pairs: Sequence[tuple[UUID, int]]) -> dict[UUID, LastMessage]:
         """For each (conversation_id, last_message_seq), the message at that seq."""
         ...
+
+    async def unread_counts(
+        self, user_id: UUID, cursors: Sequence[tuple[UUID, int]]
+    ) -> dict[UUID, int]: ...
 
 
 class UserDirectoryPort(Protocol):

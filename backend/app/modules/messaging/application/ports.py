@@ -46,6 +46,10 @@ class MessageRepositoryPort(Protocol):
 
     async def load_views(self, messages: Sequence[Message]) -> list[MessageView]: ...
 
+    async def unread_counts(
+        self, user_id: UUID, cursors: Sequence[tuple[UUID, int]]
+    ) -> dict[UUID, int]: ...
+
 
 class MessagingUnitOfWork(Protocol):
     @property

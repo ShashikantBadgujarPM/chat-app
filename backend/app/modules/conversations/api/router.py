@@ -3,7 +3,7 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Query, Response, status
+from fastapi import APIRouter, Query, Request, Response, status
 
 from app.modules.conversations.api.deps import ActiveMember, Conversations
 from app.modules.conversations.api.schemas import (
@@ -17,9 +17,16 @@ from app.modules.conversations.api.schemas import (
     MembershipOut,
     MembershipUpdateRequest,
     MembersResponse,
+    ReadCursorRequest,
+    ReadCursorResponse,
     RenameRequest,
 )
 from app.modules.identity.api.deps import Authenticated, authenticated_route_dependencies
+from app.modules.messaging.application.read_state_service import (
+    ReadStateService,
+    receipts_enabled,
+)
+from app.modules.messaging.infrastructure.unit_of_work import SqlMessagingUnitOfWork
 from app.platform.pagination import Page
 
 router = APIRouter(
@@ -90,8 +97,24 @@ async def rename_conversation(
 async def list_members(
     conversation_id: UUID, member: ActiveMember, service: Conversations
 ) -> MembersResponse:
+    view = await service.get(caller_id=member.user_id, conversation_id=conversation_id)
     members = await service.list_members(caller_id=member.user_id, conversation_id=conversation_id)
-    return MembersResponse(items=[MemberOut.from_profile(m) for m in members])
+    receipts = receipts_enabled(view.conversation.type, view.member_count)
+    return MembersResponse(items=[MemberOut.from_profile(m, receipts=receipts) for m in members])
+
+
+@router.put("/{conversation_id}/read-cursor")
+async def put_read_cursor(
+    conversation_id: UUID,
+    body: ReadCursorRequest,
+    member: ActiveMember,
+    request: Request,
+) -> ReadCursorResponse:
+    service = ReadStateService(lambda: SqlMessagingUnitOfWork(request.app.state.session_factory))
+    state = await service.mark_read(
+        user_id=member.user_id, conversation_id=conversation_id, last_read_seq=body.last_read_seq
+    )
+    return ReadCursorResponse(last_read_seq=state.last_read_seq, unread_count=state.unread_count)
 
 
 @router.post("/{conversation_id}/members")

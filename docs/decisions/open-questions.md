@@ -89,3 +89,11 @@ The implementation agent records spec ambiguities here ([15 §26.3](../design/15
 - **Also:** the burst the listener delivers (up to 100 events per batch) must fit in a healthy connection's queue, so `WS_SEND_QUEUE_SIZE` (default 256) must stay above the batch size. A test that shrank the queue to 8 wrongly closed healthy clients.
 - **Resolution:** the API runs uvicorn with `--ws websockets-sansio` (the legacy implementation is deprecated). Both implementations apply backpressure correctly.
 - **Updated:** `docker-compose*.yml`.
+
+## Found while implementing M07 (2026-09-26)
+
+### Q-016 Where the "Seen" indicator gets its data after a reload
+- **Question:** a DM shows "Seen" once the other member has read the message, but 07's `Member` had no read position, and the only source was the live `receipt.updated` event, so "Seen" disappeared on reload.
+- **Resolution:** `Member` gains an optional `last_read_seq`, filled only where read receipts apply (direct conversations and groups under 20 members) and `null` otherwise, so the receipt privacy boundary is unchanged. This is an additive field, which 07 §13.1 allows without a version bump.
+- **Also recorded:** the unread count uses `sender_id IS DISTINCT FROM :me`, not `<>`, so messages whose sender was deleted (NULL) still count. With 50 conversations × 10k messages (all unread, the worst case) `GET /conversations` took 111 ms on the dev machine, so the optional partial index `(conversation_id, seq) WHERE deleted_at IS NULL` from M07 was not added.
+- **Updated:** implemented in the conversations API schema (07 `Member` to be read with this addition).

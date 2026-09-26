@@ -4,7 +4,8 @@ from collections.abc import Sequence
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import func, select, tuple_, update
+from sqlalchemy import BigInteger, column, func, select, tuple_, update, values
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -170,6 +171,37 @@ class MessageRepository:
             )
         )
         return {m.conversation_id: _message(m) for m in rows.scalars()}
+
+    async def unread_counts(
+        self, user_id: UUID, cursors: Sequence[tuple[UUID, int]]
+    ) -> dict[UUID, int]:
+        """Per (conversation_id, last_read_seq): messages after the cursor, not sent by
+        `user_id`, not deleted. One query for a whole page of conversations.
+
+        `IS DISTINCT FROM`, not `<>`: messages whose sender was deleted (sender_id NULL)
+        must still count as unread.
+        """
+        if not cursors:
+            return {}
+        cursor_rows = values(
+            column("cid", PG_UUID(as_uuid=True)), column("last_read", BigInteger), name="cursors"
+        ).data(list(cursors))
+        rows = await self._session.execute(
+            select(MessageModel.conversation_id, func.count())
+            .join(
+                cursor_rows,
+                (MessageModel.conversation_id == cursor_rows.c.cid)
+                & (MessageModel.seq > cursor_rows.c.last_read),
+            )
+            .where(
+                MessageModel.sender_id.is_distinct_from(user_id),
+                MessageModel.deleted_at.is_(None),
+            )
+            .group_by(MessageModel.conversation_id)
+        )
+        counts = {cid: 0 for cid, _ in cursors}
+        counts.update({cid: int(count) for cid, count in rows.all()})
+        return counts
 
     async def load_views(self, messages: Sequence[Message]) -> list[MessageView]:
         """Attach senders and reply targets with two batched queries (no N+1)."""

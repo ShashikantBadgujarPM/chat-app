@@ -59,6 +59,7 @@ def _profile(row: Any) -> MemberProfile:
         role=MemberRole(row.role),
         joined_at=row.joined_at,
         notifications_muted=row.notifications_muted,
+        last_read_seq=row.last_read_seq,
     )
 
 
@@ -232,6 +233,50 @@ class ConversationRepository:
         )
         return bool(result.rowcount)  # type: ignore[attr-defined]
 
+    async def advance_read_cursor(
+        self, conversation_id: UUID, user_id: UUID, last_read_seq: int
+    ) -> tuple[int, bool]:
+        """R-10: monotonic. Returns (the stored cursor, whether it moved).
+
+        GREATEST makes the order of concurrent or stale requests irrelevant: a stale tab
+        can never move the cursor back and make messages unread again.
+        """
+        before = (
+            await self._session.execute(
+                select(ConversationMemberModel.last_read_seq)
+                .where(
+                    ConversationMemberModel.conversation_id == conversation_id,
+                    ConversationMemberModel.user_id == user_id,
+                )
+                .with_for_update()
+            )
+        ).scalar_one()
+        stored = (
+            await self._session.execute(
+                update(ConversationMemberModel)
+                .where(
+                    ConversationMemberModel.conversation_id == conversation_id,
+                    ConversationMemberModel.user_id == user_id,
+                )
+                .values(
+                    last_read_seq=func.greatest(
+                        ConversationMemberModel.last_read_seq, last_read_seq
+                    )
+                )
+                .returning(ConversationMemberModel.last_read_seq)
+            )
+        ).scalar_one()
+        return int(stored), int(stored) != int(before)
+
+    async def read_cursors(self, conversation_id: UUID) -> dict[UUID, int]:
+        rows = await self._session.execute(
+            select(ConversationMemberModel.user_id, ConversationMemberModel.last_read_seq).where(
+                ConversationMemberModel.conversation_id == conversation_id,
+                ConversationMemberModel.left_at.is_(None),
+            )
+        )
+        return {user_id: int(seq) for user_id, seq in rows.all()}
+
     async def set_muted(self, conversation_id: UUID, user_id: UUID, muted: bool) -> None:
         await self._session.execute(
             update(ConversationMemberModel)
@@ -271,6 +316,7 @@ class ConversationRepository:
                 ConversationMemberModel.role,
                 ConversationMemberModel.joined_at,
                 ConversationMemberModel.notifications_muted,
+                ConversationMemberModel.last_read_seq,
             )
             .join(UserModel, UserModel.id == ConversationMemberModel.user_id)
             .where(
@@ -299,6 +345,7 @@ class ConversationRepository:
                 ConversationMemberModel.role,
                 ConversationMemberModel.joined_at,
                 ConversationMemberModel.notifications_muted,
+                ConversationMemberModel.last_read_seq,
                 func.count()
                 .over(partition_by=ConversationMemberModel.conversation_id)
                 .label("member_count"),

@@ -42,7 +42,20 @@ export function ConversationPanel() {
   useEffect(
     () =>
       chatSocket.subscribe((event) => {
-        if (event.conversation_id !== conversationId || !event.type.startsWith('conversation.')) return
+        if (event.conversation_id !== conversationId) return
+        if (event.type === 'receipt.updated') {
+          const receipt = event.payload as { user_id: string; last_read_seq: number }
+          setMembers((current) =>
+            current.map((m) =>
+              m.user.id === receipt.user_id
+                ? { ...m, last_read_seq: Math.max(m.last_read_seq ?? 0, receipt.last_read_seq) }
+                : m,
+            ),
+          )
+          return
+        }
+        if (!event.type.startsWith('conversation.')) return
+        if (event.type === 'receipt.updated') return // handled below, no reload needed
         const removed = event.payload as { user_id?: string }
         if (event.type === 'conversation.member_removed' && removed.user_id === auth.user?.id) {
           navigate('/')
@@ -86,7 +99,18 @@ export function ConversationPanel() {
     <div className="conversation">
       <article className="conversation-main">
         <h1>{conversationName(conversation, me.id)}</h1>
-        <MessagePane key={conversation.id} conversationId={conversation.id} myId={me.id} onSent={refresh} />
+        <MessagePane
+          key={conversation.id}
+          conversationId={conversation.id}
+          myId={me.id}
+          myLastReadSeq={members.find((m) => m.user.id === me.id)?.last_read_seq ?? 0}
+          otherReadSeq={
+            conversation.type === 'direct'
+              ? (members.find((m) => m.user.id !== me.id)?.last_read_seq ?? null)
+              : null
+          }
+          onSent={refresh}
+        />
       </article>
       <ConversationDetails
         conversation={conversation}

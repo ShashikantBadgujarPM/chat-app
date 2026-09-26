@@ -69,6 +69,7 @@ class MemberProfile:
     role: MemberRole
     joined_at: datetime
     notifications_muted: bool
+    last_read_seq: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,3 +93,4 @@ class ConversationView:
     my_role: MemberRole
     my_last_read_seq: int
     last_message: LastMessage | None = None
+    unread_count: int = 0

@@ -1,16 +1,24 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { FormEvent, KeyboardEvent } from 'react'
-import { ApiError } from '../../api/client'
+import { ApiError, api } from '../../api/client'
 import { chatSocket } from '../../ws/ChatSocket'
 import { messagesApi } from './api'
 import type { Message } from './api'
+import { CursorSender } from './readCursor'
 import { markDeleted, upsertMessage } from './reducer'
 import type { MessageState, Pending } from './reducer'
 
-type Props = { conversationId: string; myId: string; onSent?: () => void }
+type Props = {
+  conversationId: string
+  myId: string
+  myLastReadSeq: number
+  /** In a DM, how far the other member has read (for "Seen"); null elsewhere. */
+  otherReadSeq: number | null
+  onSent?: () => void
+}
 
 /** Message history, live updates (M06) and the composer. */
-export function MessagePane({ conversationId, myId, onSent }: Props) {
+export function MessagePane({ conversationId, myId, myLastReadSeq, otherReadSeq, onSent }: Props) {
   const [state, setState] = useState<MessageState>({ messages: [], pending: [] })
   const [hasMore, setHasMore] = useState(false)
   const [loadingOlder, setLoadingOlder] = useState(false)
@@ -20,6 +28,39 @@ export function MessagePane({ conversationId, myId, onSent }: Props) {
   const keepScroll = useRef<{ height: number; top: number } | null>(null)
   const stickToBottom = useRef(true)
   const { messages, pending } = state
+
+  // Move the read cursor while the conversation is actually being read (M07).
+  const [sender] = useState(
+    () =>
+      new CursorSender(
+        (seq) =>
+          void api(`/api/v1/conversations/${conversationId}/read-cursor`, {
+            method: 'PUT',
+            body: { last_read_seq: seq },
+          }).catch(() => undefined),
+        500,
+        myLastReadSeq,
+      ),
+  )
+  const latestSeq = messages.length ? messages[messages.length - 1].seq : 0
+  const reportReading = useCallback(() => {
+    sender.update(latestSeq, {
+      visible: document.visibilityState === 'visible',
+      focused: document.hasFocus(),
+      atBottom: stickToBottom.current,
+    })
+  }, [sender, latestSeq])
+
+  useEffect(() => {
+    reportReading()
+    window.addEventListener('focus', reportReading)
+    document.addEventListener('visibilitychange', reportReading)
+    return () => {
+      window.removeEventListener('focus', reportReading)
+      document.removeEventListener('visibilitychange', reportReading)
+    }
+  }, [reportReading])
+  useEffect(() => () => sender.dispose(), [sender])
 
   useEffect(() => {
     // State starts empty per conversation: the parent keys this component by id.
@@ -44,7 +85,9 @@ export function MessagePane({ conversationId, myId, onSent }: Props) {
     () =>
       chatSocket.subscribe((event) => {
         if (event.conversation_id !== conversationId) return
-        if (event.type === 'message.created' || event.type === 'message.updated') {
+        if (event.type === 'conversation.read') {
+          sender.acknowledge(Number((event.payload as { last_read_seq: number }).last_read_seq))
+        } else if (event.type === 'message.created' || event.type === 'message.updated') {
           setState((current) => upsertMessage(current, event.payload as unknown as Message))
         } else if (event.type === 'message.deleted') {
           setState((current) =>
@@ -52,7 +95,7 @@ export function MessagePane({ conversationId, myId, onSent }: Props) {
           )
         }
       }),
-    [conversationId],
+    [conversationId, sender],
   )
 
   // Keep the view steady when older messages are prepended, or pinned to the bottom.
@@ -85,6 +128,7 @@ export function MessagePane({ conversationId, myId, onSent }: Props) {
     const list = listRef.current
     if (!list) return
     stickToBottom.current = list.scrollHeight - list.scrollTop - list.clientHeight < 40
+    reportReading()
     if (list.scrollTop < 80) void loadOlder()
   }
 
@@ -156,6 +200,9 @@ export function MessagePane({ conversationId, myId, onSent }: Props) {
     }
   }
 
+  const lastMine = [...messages].reverse().find((m) => m.sender?.id === myId && !m.deleted_at)
+  const lastMineId = lastMine?.id
+
   return (
     <div className="message-pane">
       <ol className="messages" ref={listRef} onScroll={onScroll} aria-label="Messages" aria-live="polite">
@@ -171,6 +218,7 @@ export function MessagePane({ conversationId, myId, onSent }: Props) {
             key={message.id}
             message={message}
             mine={message.sender?.id === myId}
+            seen={message.id === lastMineId && otherReadSeq !== null && otherReadSeq >= message.seq}
             onReply={() => setReplyTo(message)}
             onEdit={() => void edit(message)}
             onDelete={() => void remove(message)}
@@ -201,12 +249,14 @@ export function MessagePane({ conversationId, myId, onSent }: Props) {
 function MessageItem({
   message,
   mine,
+  seen,
   onReply,
   onEdit,
   onDelete,
 }: {
   message: Message
   mine: boolean
+  seen: boolean
   onReply: () => void
   onEdit: () => void
   onDelete: () => void
@@ -231,6 +281,7 @@ function MessageItem({
       ) : (
         <p>{message.body}</p>
       )}
+      {seen && <small className="seen">Seen</small>}
       {!deleted && (
         <div className="message-actions">
           <button type="button" className="link" onClick={onReply}>

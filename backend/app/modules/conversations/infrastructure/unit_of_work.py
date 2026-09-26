@@ -35,6 +35,11 @@ class LastMessageReader:
             for cid, m in found.items()
         }
 
+    async def unread_counts(
+        self, user_id: UUID, cursors: Sequence[tuple[UUID, int]]
+    ) -> dict[UUID, int]:
+        return await self._messages.unread_counts(user_id, cursors)
+
 
 class SqlConversationsUnitOfWork(UnitOfWork):
     conversations: ConversationRepository

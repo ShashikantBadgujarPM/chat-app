@@ -234,3 +234,29 @@ button {
   content: '● ';
   color: #9ca3af;
 }
+
+.conversation-list a {
+  display: flex;
+  gap: 0.25rem;
+  align-items: center;
+}
+
+.conversation-list .name {
+  flex: 1;
+}
+
+.badge {
+  min-width: 1.4em;
+  padding: 0 0.4em;
+  border-radius: 1em;
+  background: #2563eb;
+  color: white;
+  font-size: 0.8em;
+  text-align: center;
+}
+
+.seen {
+  display: block;
+  text-align: right;
+  opacity: 0.7;
+}

@@ -22,7 +22,13 @@ export type ConversationSummary = Conversation & {
   my_last_read_seq: number
 }
 
-export type Member = { user: UserPublic; role: Role; joined_at: string }
+export type Member = {
+  user: UserPublic
+  role: Role
+  joined_at: string
+  /** Only where read receipts apply (DMs, groups under 20); else null. */
+  last_read_seq: number | null
+}
 
 const base = '/api/v1/conversations'
 

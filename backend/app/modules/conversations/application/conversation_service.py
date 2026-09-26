@@ -218,6 +218,9 @@ class ConversationService:
                 [c.id for c, _ in page], viewer_id=caller_id, preview_size=PREVIEW_SIZE
             )
             latest = await uow.last_messages.latest([(c.id, c.last_message_seq) for c, _ in page])
+            unread = await uow.last_messages.unread_counts(
+                caller_id, [(c.id, m.last_read_seq) for c, m in page]
+            )
         views = [
             ConversationView(
                 conversation=conversation,
@@ -226,6 +229,7 @@ class ConversationService:
                 my_role=membership.role,
                 my_last_read_seq=membership.last_read_seq,
                 last_message=latest.get(conversation.id),
+                unread_count=unread.get(conversation.id, 0),
             )
             for conversation, membership in page
         ]

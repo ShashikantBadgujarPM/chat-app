@@ -89,8 +89,13 @@ export function ConversationsLayout() {
           {items.map((conversation) => (
             <li key={conversation.id}>
               <NavLink to={`/c/${conversation.id}`}>
-                {conversationName(conversation, me.id)}
+                <span className="name">{conversationName(conversation, me.id)}</span>
                 {conversation.type === 'group' && <small> · {conversation.member_count} members</small>}
+                {conversation.unread_count > 0 && (
+                  <span className="badge" aria-label={`${conversation.unread_count} unread`}>
+                    {conversation.unread_count > 99 ? '99+' : conversation.unread_count}
+                  </span>
+                )}
               </NavLink>
             </li>
           ))}

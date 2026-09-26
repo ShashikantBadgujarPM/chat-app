@@ -39,6 +39,15 @@ class MembershipUpdateRequest(RequestModel):
     notifications_muted: bool
 
 
+class ReadCursorRequest(RequestModel):
+    last_read_seq: Annotated[int, Field(ge=0)]
+
+
+class ReadCursorResponse(BaseModel):
+    last_read_seq: int
+    unread_count: int
+
+
 def _public(member: MemberProfile) -> UserPublic:
     return UserPublic(
         id=member.user_id,
@@ -52,21 +61,31 @@ class MemberOut(BaseModel):
     user: UserPublic
     role: Literal["owner", "member"]
     joined_at: UtcDateTime
+    # The member's read position: only where read receipts apply (direct conversations
+    # and groups under 20), else null. Lets "Seen" survive a reload (Q-016).
+    last_read_seq: int | None = None
 
     @classmethod
-    def from_profile(cls, member: MemberProfile) -> "MemberOut":
-        return cls(user=_public(member), role=member.role.value, joined_at=member.joined_at)
+    def from_profile(cls, member: MemberProfile, *, receipts: bool = False) -> "MemberOut":
+        return cls(
+            user=_public(member),
+            role=member.role.value,
+            joined_at=member.joined_at,
+            last_read_seq=member.last_read_seq if receipts else None,
+        )
 
 
 class MembershipOut(MemberOut):
     notifications_muted: bool
 
     @classmethod
-    def from_profile(cls, member: MemberProfile) -> "MembershipOut":
+    def from_profile(cls, member: MemberProfile, *, receipts: bool = True) -> "MembershipOut":
+        # The caller's own membership: their own read position is always theirs to see.
         return cls(
             user=_public(member),
             role=member.role.value,
             joined_at=member.joined_at,
+            last_read_seq=member.last_read_seq if receipts else None,
             notifications_muted=member.notifications_muted,
         )
 
@@ -133,6 +152,7 @@ class ConversationSummaryOut(ConversationOut):
             ),
             last_activity_at=view.conversation.last_activity_at,
             my_last_read_seq=view.my_last_read_seq,
+            unread_count=view.unread_count,
         )
 
 
