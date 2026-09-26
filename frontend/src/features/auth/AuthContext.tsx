@@ -7,6 +7,7 @@ import {
   refreshAccessToken,
   setAccessToken,
 } from '../../api/client'
+import { chatSocket } from '../../ws/ChatSocket'
 
 export type UserMe = {
   id: string
@@ -63,6 +64,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       cancelled = true
     }
   }, [])
+
+  // The socket runs exactly while signed in; if it finds the session is over, sign out.
+  useEffect(() => {
+    if (state.status !== 'signed-in') {
+      chatSocket.stop()
+      return
+    }
+    chatSocket.onSessionEnded = () => setAccessToken(null)
+    chatSocket.start()
+  }, [state.status])
 
   // Session ended elsewhere (refresh failed, or another tab logged out).
   useEffect(

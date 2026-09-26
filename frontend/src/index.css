@@ -218,3 +218,19 @@ button {
     grid-template-columns: 1fr;
   }
 }
+
+.socket-status {
+  font-size: 0.8em;
+  opacity: 0.8;
+}
+
+.socket-status.online::before {
+  content: '● ';
+  color: #16a34a;
+}
+
+.socket-status.connecting::before,
+.socket-status.offline::before {
+  content: '● ';
+  color: #9ca3af;
+}

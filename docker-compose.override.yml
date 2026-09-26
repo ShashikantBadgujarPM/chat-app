@@ -22,6 +22,7 @@ services:
       - --workers=1
       - --ws-ping-interval=20
       - --ws-ping-timeout=20
+      - --ws=websockets-sansio
       - --reload
     environment:
       # Bind mounts from a Windows/macOS host don't deliver inotify events reliably.

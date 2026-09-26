@@ -1,40 +1,35 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { FormEvent, KeyboardEvent } from 'react'
 import { ApiError } from '../../api/client'
+import { chatSocket } from '../../ws/ChatSocket'
 import { messagesApi } from './api'
 import type { Message } from './api'
-
-type Pending = {
-  clientMessageId: string
-  body: string
-  replyTo: Message | null
-  state: 'sending' | 'failed'
-}
+import { markDeleted, upsertMessage } from './reducer'
+import type { MessageState, Pending } from './reducer'
 
 type Props = { conversationId: string; myId: string; onSent?: () => void }
 
-/**
- * Message history and composer (M05). Updates come from REST for now; M06 adds live
- * WebSocket events.
- */
+/** Message history, live updates (M06) and the composer. */
 export function MessagePane({ conversationId, myId, onSent }: Props) {
-  const [messages, setMessages] = useState<Message[]>([]) // ascending by seq
+  const [state, setState] = useState<MessageState>({ messages: [], pending: [] })
   const [hasMore, setHasMore] = useState(false)
   const [loadingOlder, setLoadingOlder] = useState(false)
-  const [pending, setPending] = useState<Pending[]>([])
   const [replyTo, setReplyTo] = useState<Message | null>(null)
   const [error, setError] = useState<string | null>(null)
   const listRef = useRef<HTMLOListElement>(null)
   const keepScroll = useRef<{ height: number; top: number } | null>(null)
   const stickToBottom = useRef(true)
+  const { messages, pending } = state
 
   useEffect(() => {
+    // State starts empty per conversation: the parent keys this component by id.
     let cancelled = false
     messagesApi
       .latest(conversationId)
       .then((page) => {
         if (cancelled) return
-        setMessages([...page.items].reverse())
+        // Live events may already have arrived; merge rather than replace.
+        setState((current) => [...page.items].reverse().reduce(upsertMessage, current))
         setHasMore(page.has_more)
         stickToBottom.current = true
       })
@@ -43,6 +38,22 @@ export function MessagePane({ conversationId, myId, onSent }: Props) {
       cancelled = true
     }
   }, [conversationId])
+
+  // Live events for this conversation (08 §15.4).
+  useEffect(
+    () =>
+      chatSocket.subscribe((event) => {
+        if (event.conversation_id !== conversationId) return
+        if (event.type === 'message.created' || event.type === 'message.updated') {
+          setState((current) => upsertMessage(current, event.payload as unknown as Message))
+        } else if (event.type === 'message.deleted') {
+          setState((current) =>
+            markDeleted(current, event.payload as unknown as { id: string; deleted_at: string | null }),
+          )
+        }
+      }),
+    [conversationId],
+  )
 
   // Keep the view steady when older messages are prepended, or pinned to the bottom.
   useLayoutEffect(() => {
@@ -63,7 +74,7 @@ export function MessagePane({ conversationId, myId, onSent }: Props) {
     try {
       const page = await messagesApi.before(conversationId, messages[0].seq)
       if (list) keepScroll.current = { height: list.scrollHeight, top: list.scrollTop }
-      setMessages((current) => [...[...page.items].reverse(), ...current])
+      setState((current) => page.items.reduce(upsertMessage, current))
       setHasMore(page.has_more)
     } finally {
       setLoadingOlder(false)
@@ -77,37 +88,36 @@ export function MessagePane({ conversationId, myId, onSent }: Props) {
     if (list.scrollTop < 80) void loadOlder()
   }
 
-  const upsert = useCallback((message: Message) => {
-    setMessages((current) => {
-      const index = current.findIndex((m) => m.id === message.id)
-      if (index >= 0) return current.map((m) => (m.id === message.id ? message : m))
-      return [...current, message].sort((a, b) => a.seq - b.seq)
-    })
-  }, [])
+  function setPendingState(clientMessageId: string, pendingState: Pending['state']) {
+    setState((current) => ({
+      ...current,
+      pending: current.pending.map((p) =>
+        p.clientMessageId === clientMessageId ? { ...p, state: pendingState } : p,
+      ),
+    }))
+  }
 
   async function deliver(item: Pending) {
-    setPending((current) =>
-      current.map((p) => (p.clientMessageId === item.clientMessageId ? { ...p, state: 'sending' } : p)),
-    )
+    setPendingState(item.clientMessageId, 'sending')
     try {
       // Retries reuse the same client_message_id, so the server never duplicates it.
       const message = await messagesApi.send(conversationId, {
         client_message_id: item.clientMessageId,
         body: item.body,
-        ...(item.replyTo ? { reply_to_id: item.replyTo.id } : {}),
+        ...(item.replyToId ? { reply_to_id: item.replyToId } : {}),
       })
-      setPending((current) => current.filter((p) => p.clientMessageId !== item.clientMessageId))
-      upsert(message)
+      setState((current) => upsertMessage(current, message))
       onSent?.()
     } catch (caught) {
       if (caught instanceof ApiError && caught.status === 422) {
         setError(caught.message)
-        setPending((current) => current.filter((p) => p.clientMessageId !== item.clientMessageId))
+        setState((current) => ({
+          ...current,
+          pending: current.pending.filter((p) => p.clientMessageId !== item.clientMessageId),
+        }))
         return
       }
-      setPending((current) =>
-        current.map((p) => (p.clientMessageId === item.clientMessageId ? { ...p, state: 'failed' } : p)),
-      )
+      setPendingState(item.clientMessageId, 'failed')
     }
   }
 
@@ -115,11 +125,11 @@ export function MessagePane({ conversationId, myId, onSent }: Props) {
     const item: Pending = {
       clientMessageId: crypto.randomUUID(),
       body,
-      replyTo,
+      replyToId: replyTo?.id ?? null,
       state: 'sending',
     }
     stickToBottom.current = true
-    setPending((current) => [...current, item])
+    setState((current) => ({ ...current, pending: [...current.pending, item] }))
     setReplyTo(null)
     setError(null)
     void deliver(item)
@@ -129,7 +139,8 @@ export function MessagePane({ conversationId, myId, onSent }: Props) {
     const next = window.prompt('Edit message', message.body ?? '')
     if (next === null || next.trim() === message.body) return
     try {
-      upsert(await messagesApi.edit(message.id, next))
+      const updated = await messagesApi.edit(message.id, next)
+      setState((current) => upsertMessage(current, updated))
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Could not edit.')
     }
@@ -139,7 +150,7 @@ export function MessagePane({ conversationId, myId, onSent }: Props) {
     if (!window.confirm('Delete this message?')) return
     try {
       await messagesApi.remove(message.id)
-      upsert({ ...message, body: null, deleted_at: new Date().toISOString(), reply_to: message.reply_to })
+      setState((current) => markDeleted(current, { id: message.id, deleted_at: null }))
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Could not delete.')
     }
@@ -147,7 +158,7 @@ export function MessagePane({ conversationId, myId, onSent }: Props) {
 
   return (
     <div className="message-pane">
-      <ol className="messages" ref={listRef} onScroll={onScroll} aria-label="Messages">
+      <ol className="messages" ref={listRef} onScroll={onScroll} aria-label="Messages" aria-live="polite">
         {hasMore && (
           <li className="load-older">
             <button type="button" onClick={() => void loadOlder()} disabled={loadingOlder}>
@@ -213,7 +224,13 @@ function MessageItem({
           {message.reply_to.deleted ? <em>This message was deleted.</em> : message.reply_to.body_preview}
         </blockquote>
       )}
-      {deleted ? <p><em>This message was deleted.</em></p> : <p>{message.body}</p>}
+      {deleted ? (
+        <p>
+          <em>This message was deleted.</em>
+        </p>
+      ) : (
+        <p>{message.body}</p>
+      )}
       {!deleted && (
         <div className="message-actions">
           <button type="button" className="link" onClick={onReply}>

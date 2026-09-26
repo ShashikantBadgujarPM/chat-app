@@ -21,7 +21,9 @@ async def test_ready_returns_503_when_the_database_is_unreachable(
     response = await client.get("/health/ready")
 
     assert response.status_code == 503
-    assert response.json()["error"]["details"] == {"checks": {"database": "unavailable"}}
+    assert response.json()["error"]["details"] == {
+        "checks": {"database": "unavailable", "outbox_listener": "unavailable"}
+    }
 
 
 @pytest.fixture

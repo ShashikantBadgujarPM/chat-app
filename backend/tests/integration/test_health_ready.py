@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import AsyncIterator
 
 import httpx
@@ -23,10 +24,18 @@ async def client(app: FastAPI) -> AsyncIterator[httpx.AsyncClient]:
         yield c
 
 
-async def test_ready_returns_200_when_the_database_is_reachable(
+async def test_ready_returns_200_when_the_database_and_listener_are_up(
     client: httpx.AsyncClient,
 ) -> None:
-    response = await client.get("/health/ready")
+    # The listener connects in the background after startup.
+    for _ in range(100):
+        response = await client.get("/health/ready")
+        if response.status_code == 200:
+            break
+        await asyncio.sleep(0.05)
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ready", "checks": {"database": "ok"}}
+    assert response.json() == {
+        "status": "ready",
+        "checks": {"database": "ok", "outbox_listener": "ok"},
+    }

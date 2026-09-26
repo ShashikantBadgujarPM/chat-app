@@ -26,6 +26,7 @@ from app.modules.identity.api.schemas import (
     SessionsResponse,
     TokenResponse,
     UserMe,
+    WsTicketResponse,
 )
 from app.modules.identity.application.services import (
     ChangePassword,
@@ -37,6 +38,7 @@ from app.modules.identity.application.services import (
     RegisterUser,
     RevokeSession,
 )
+from app.modules.identity.application.ws_ticket_service import WsTicketService
 from app.modules.identity.domain.errors import InvalidRefreshToken
 from app.platform.rate_limit import client_ip, rate_limited
 
@@ -57,6 +59,13 @@ _refresh_limit = rate_limited(
     "auth.refresh",
     client_ip,
     limit=lambda r: (r.app.state.settings.rate_limit_refresh_per_minute, 60),
+)
+
+# 10/min per user (docs/design/07 §13.4); the key is set by get_current_user.
+_ws_ticket_limit = rate_limited(
+    "auth.ws_ticket",
+    lambda r: getattr(r.state, "user_id", None),
+    limit=lambda r: (r.app.state.settings.rate_limit_ws_ticket_per_minute, 60),
 )
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
@@ -158,6 +167,18 @@ async def logout_all(
 ) -> None:
     await LogoutAll(deps)(user_id=current.user.id, client=client)
     clear_refresh_cookie(response, settings)
+
+
+@authenticated.post(
+    "/ws-ticket",
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(_ws_ticket_limit)],
+)
+async def issue_ws_ticket(current: Authenticated, deps: IdentityDeps) -> WsTicketResponse:
+    issued = await WsTicketService(deps.uow_factory).issue(
+        user_id=current.user.id, session_family_id=current.session_id
+    )
+    return WsTicketResponse(ticket=issued.ticket, expires_in=issued.expires_in)
 
 
 @authenticated.get("/sessions")

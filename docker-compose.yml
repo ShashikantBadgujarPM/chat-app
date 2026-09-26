@@ -58,6 +58,7 @@ services:
       - --workers=1  # deliberate, see ADR-002
       - --ws-ping-interval=20
       - --ws-ping-timeout=20
+      - --ws=websockets-sansio
       - --proxy-headers
       - --forwarded-allow-ips=${TRUSTED_PROXIES:-127.0.0.1}
     environment:

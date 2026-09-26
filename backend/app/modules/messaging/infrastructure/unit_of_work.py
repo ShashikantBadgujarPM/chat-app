@@ -5,7 +5,8 @@ from typing import Self
 from app.modules.conversations.infrastructure.repository import ConversationRepository
 from app.modules.messaging.infrastructure.repository import MessageRepository
 from app.platform.db import SessionFactory, UnitOfWork
-from app.platform.events import EventPublisher, NoOpEventPublisher
+from app.platform.events import EventPublisher
+from app.realtime.publisher import OutboxEventPublisher
 
 
 class SqlMessagingUnitOfWork(UnitOfWork):
@@ -20,6 +21,5 @@ class SqlMessagingUnitOfWork(UnitOfWork):
         await super().__aenter__()
         self.messages = MessageRepository(self.session)
         self.conversations = ConversationRepository(self.session)
-        # Replaced by the transactional outbox publisher in M06.
-        self.events = NoOpEventPublisher()
+        self.events = OutboxEventPublisher(self.session)
         return self

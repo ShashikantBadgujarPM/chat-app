@@ -53,6 +53,14 @@ class Settings(BaseSettings):
     rate_limit_refresh_per_minute: int = Field(default=30, ge=1)
     rate_limit_authenticated_per_minute: int = Field(default=300, ge=1)
     rate_limit_message_send_per_10s: int = Field(default=30, ge=1)
+    rate_limit_ws_ticket_per_minute: int = Field(default=10, ge=1)
+
+    # WebSocket (docs/design/08 §14.3, §14.6, §15.1).
+    ws_send_queue_size: int = Field(default=256, ge=1)
+    ws_idle_timeout_seconds: float = Field(default=60.0, gt=0)
+    ws_max_frame_bytes: int = Field(default=16 * 1024, gt=0)
+    ws_heartbeat_interval_seconds: int = Field(default=25, gt=0)
+    ws_shutdown_drain_seconds: float = Field(default=5.0, ge=0)
 
     cookie_secure: bool = True
     allowed_origins: Annotated[list[str], NoDecode] = Field(

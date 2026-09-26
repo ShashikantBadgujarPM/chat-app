@@ -12,7 +12,8 @@ from app.modules.conversations.infrastructure.repository import (
 from app.modules.messaging.infrastructure.repository import MessageRepository
 from app.platform.audit import AuditLogger
 from app.platform.db import SessionFactory, UnitOfWork
-from app.platform.events import EventPublisher, NoOpEventPublisher
+from app.platform.events import EventPublisher
+from app.realtime.publisher import OutboxEventPublisher
 
 
 class LastMessageReader:
@@ -50,7 +51,6 @@ class SqlConversationsUnitOfWork(UnitOfWork):
         self.conversations = ConversationRepository(self.session)
         self.users = UserDirectory(self.session)
         self.last_messages = LastMessageReader(MessageRepository(self.session))
-        # Replaced by the transactional outbox publisher in M06.
-        self.events = NoOpEventPublisher()
+        self.events = OutboxEventPublisher(self.session)
         self.audit = AuditLogger(self.session)
         return self

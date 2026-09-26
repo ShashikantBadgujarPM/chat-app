@@ -49,12 +49,31 @@ class RequestIdMiddleware:
 
 
 class AccessLogMiddleware:
-    """Writes one `http.request` line per request, with the route template."""
+    """Writes one `http.request` line per request, with the route template.
+
+    WebSocket connections get a `ws.request` line when they end, with the path only:
+    the query string carries the single-use ticket and is never logged.
+    """
 
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "websocket":
+            started = time.perf_counter()
+            try:
+                await self.app(scope, receive, send)
+            finally:
+                access_logger.info(
+                    "WS %s",
+                    scope["path"],
+                    extra={
+                        "event": "ws.request",
+                        "route": scope["path"],
+                        "duration_ms": round((time.perf_counter() - started) * 1000, 2),
+                    },
+                )
+            return
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return

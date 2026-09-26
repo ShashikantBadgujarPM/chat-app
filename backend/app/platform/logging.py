@@ -36,6 +36,8 @@ _OWN_FIELDS = frozenset({"event", *_CONTEXT_FIELDS, *_SERVICE_FIELDS})
 
 _SENSITIVE_KEY = re.compile(r"password|token|secret|authorization|cookie|ticket|refresh", re.I)
 _JWT_LIKE = re.compile(r"eyJ[\w-]+\.[\w-]+\.[\w-]+")
+# WS tickets travel in the query string (docs/design/06 §11.6).
+_TICKET_PARAM = re.compile(r"(ticket=)[^&\s'\"]+")
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,7 +100,7 @@ class RedactingFilter(logging.Filter):
             elif isinstance(value, Mapping):
                 setattr(record, key, redact_mapping(value))
         message = record.getMessage()
-        redacted = _JWT_LIKE.sub(REDACTED, message)
+        redacted = _TICKET_PARAM.sub(rf"\g<1>{REDACTED}", _JWT_LIKE.sub(REDACTED, message))
         if redacted != message:
             record.msg, record.args = redacted, None
         return True
@@ -203,6 +205,9 @@ def configure_logging(settings: Settings, *, service: str) -> None:
                 "uvicorn.error": {"handlers": [], "propagate": True},
                 # Replaced by AccessLogMiddleware.
                 "uvicorn.access": {"handlers": [], "propagate": False, "level": "CRITICAL"},
+                # Its DEBUG lines include raw request lines (with the WS ticket), so it
+                # never goes below INFO, whatever LOG_LEVEL says.
+                "websockets": {"level": "INFO"},
             },
         }
     )

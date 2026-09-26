@@ -3,6 +3,7 @@ import type { FormEvent } from 'react'
 import { useNavigate, useOutletContext, useParams } from 'react-router-dom'
 import { ApiError } from '../../api/client'
 import { useAuth } from '../auth/AuthContext'
+import { chatSocket } from '../../ws/ChatSocket'
 import { MessagePane } from '../messages/MessagePane'
 import { UserSearch } from '../users/UserSearch'
 import { conversationName, conversationsApi } from './api'
@@ -36,6 +37,21 @@ export function ConversationPanel() {
   }, [conversationId])
 
   useEffect(load, [load])
+
+  // Membership or title changed elsewhere: reload; if I was removed, leave the view.
+  useEffect(
+    () =>
+      chatSocket.subscribe((event) => {
+        if (event.conversation_id !== conversationId || !event.type.startsWith('conversation.')) return
+        const removed = event.payload as { user_id?: string }
+        if (event.type === 'conversation.member_removed' && removed.user_id === auth.user?.id) {
+          navigate('/')
+          return
+        }
+        load()
+      }),
+    [conversationId, load, navigate, auth.user?.id],
+  )
   const memberIds = useMemo(() => new Set(members.map((m) => m.user.id)), [members])
 
   if (auth.status !== 'signed-in') return null
@@ -70,7 +86,7 @@ export function ConversationPanel() {
     <div className="conversation">
       <article className="conversation-main">
         <h1>{conversationName(conversation, me.id)}</h1>
-        <MessagePane conversationId={conversation.id} myId={me.id} onSent={refresh} />
+        <MessagePane key={conversation.id} conversationId={conversation.id} myId={me.id} onSent={refresh} />
       </article>
       <ConversationDetails
         conversation={conversation}

@@ -3,6 +3,8 @@ import type { FormEvent } from 'react'
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { ApiError } from '../../api/client'
 import { useAuth } from '../auth/AuthContext'
+import { chatSocket } from '../../ws/ChatSocket'
+import type { SocketStatus } from '../../ws/ChatSocket'
 import { UserSearch } from '../users/UserSearch'
 import type { UserPublic } from '../users/api'
 import { conversationName, conversationsApi } from './api'
@@ -30,6 +32,24 @@ export function ConversationsLayout() {
 
   useEffect(refresh, [refresh])
 
+  // Keep the sidebar live: new conversations, renames, membership, new last messages.
+  // Coalesce bursts of events into one reload.
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const unsubscribe = chatSocket.subscribe((event) => {
+      if (!event.type.startsWith('conversation.') && event.type !== 'message.created') return
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(refresh, 150)
+    })
+    return () => {
+      unsubscribe()
+      if (timer) clearTimeout(timer)
+    }
+  }, [refresh])
+
+  const [socketStatus, setSocketStatus] = useState<SocketStatus>(chatSocket.status)
+  useEffect(() => chatSocket.onStatus(setSocketStatus), [])
+
   if (auth.status !== 'signed-in') return null
   const me = auth.user
 
@@ -45,6 +65,9 @@ export function ConversationsLayout() {
       <aside aria-label="Conversations">
         <header>
           <strong>{me.display_name}</strong>
+          <small className={`socket-status ${socketStatus}`} role="status">
+            {socketStatus === 'online' ? 'Live' : socketStatus === 'connecting' ? 'Connecting…' : 'Offline'}
+          </small>
           <nav>
             <Link to="/me">Profile</Link> ·{' '}
             <button type="button" className="link" onClick={() => void auth.logout()}>

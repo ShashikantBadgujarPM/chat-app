@@ -76,3 +76,16 @@ The implementation agent records spec ambiguities here ([15 §26.3](../design/15
 - **Question:** a message's `created_at` and the conversation's `last_activity_at` were written from the `Clock` port, while other rows (e.g. `conversations.created_at`) use the database default `now()`. Mixing the two made ordering inconsistent (caught by a test with a frozen clock).
 - **Resolution:** timestamps that record *when a row changed* (`created_at`, `last_activity_at`, `edited_at`, `deleted_at`) come from the database (`now()` / `func.now()`), so they share one clock. The `Clock` port is used for *domain decisions* only: lockout windows, token expiry, the refresh grace period, and later the scheduled-message "at least 30 s ahead" check (09 §16.3).
 - **Updated:** none (implementation rule; consistent with 09's "comparisons happen in the database with `now()`").
+
+## Found while implementing M06 (2026-09-26)
+
+### Q-014 `event_outbox.correlation_id`
+- **Question:** 10 §19.2 says outbox events store `correlation_id`, and the 08 §15.1 envelope sends it, but the 05 `event_outbox` table had no such column.
+- **Resolution:** a nullable `correlation_id text` column, filled from the log context (`request_id`, or the worker's `batch_id`) by `OutboxEventPublisher`. The listener binds it while delivering, so fan-out logs link back to the causing request.
+- **Updated:** implemented in migration 0005 (05 table to be read with this addition).
+
+### Q-015 Testing WebSocket backpressure, and the uvicorn WS implementation
+- **Finding:** a first slow-consumer test "passed" frames to a client that never called `recv`, with no backpressure at all. The cause was the test client, not the server: a client library's transport keeps reading bytes into its own buffers. A raw socket that completes the handshake and then never reads is a genuinely stuck peer, and with it the server applies backpressure and closes the connection with 4008 as designed.
+- **Also:** the burst the listener delivers (up to 100 events per batch) must fit in a healthy connection's queue, so `WS_SEND_QUEUE_SIZE` (default 256) must stay above the batch size. A test that shrank the queue to 8 wrongly closed healthy clients.
+- **Resolution:** the API runs uvicorn with `--ws websockets-sansio` (the legacy implementation is deprecated). Both implementations apply backpressure correctly.
+- **Updated:** `docker-compose*.yml`.

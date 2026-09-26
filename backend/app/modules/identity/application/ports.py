@@ -90,6 +90,16 @@ class RefreshTokenRepositoryPort(Protocol):
     async def has_active_family(self, user_id: UUID, family_id: UUID, *, now: datetime) -> bool: ...
 
 
+class WsTicketRepositoryPort(Protocol):
+    async def issue(
+        self, *, user_id: UUID, session_family_id: UUID, ticket_hash: str, ttl_seconds: int
+    ) -> None: ...
+
+    async def consume(self, ticket_hash: str) -> tuple[UUID, UUID] | None:
+        """Atomic single use (R-7): (user_id, session_family_id) or None."""
+        ...
+
+
 class AuditPort(Protocol):
     async def record(
         self,
@@ -116,6 +126,9 @@ class IdentityUnitOfWork(Protocol):
 
     @property
     def audit(self) -> AuditPort: ...
+
+    @property
+    def ws_tickets(self) -> WsTicketRepositoryPort: ...
 
     async def __aenter__(self) -> Self: ...
 

@@ -29,6 +29,10 @@ from app.platform.middleware import (
 )
 from app.platform.rate_limit import TokenBucketLimiter
 from app.platform.security import Argon2PasswordHasher, JwtTokenIssuer
+from app.platform.tasks import TaskSupervisor
+from app.realtime import gateway
+from app.realtime.connection_manager import ConnectionManager
+from app.realtime.outbox_listener import OutboxListener, libpq_dsn
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +50,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.engine = engine
         app.state.session_factory = create_session_factory(engine)
         health.register_readiness_check(app, "database", partial(check_database, engine))
+
+        # Realtime (docs/design/08 §14.3-14.4): connections, and the listener that
+        # delivers committed outbox events to them. Supervised: restarted if it dies.
+        tasks = TaskSupervisor()
+        app.state.tasks = tasks
+        connections = ConnectionManager(supervisor=tasks, queue_size=settings.ws_send_queue_size)
+        app.state.connections = connections
+        listener = OutboxListener(
+            dsn=libpq_dsn(settings.database_url.get_secret_value()),
+            engine=engine,
+            manager=connections,
+        )
+        app.state.outbox_listener = listener
+        tasks.spawn_supervised(listener.run, name="outbox-listener")
+        health.register_readiness_check(app, "outbox_listener", listener.check_ready)
         logger.info(
             "Application started",
             extra={"event": "app.startup", "config": settings.safe_summary()},
@@ -53,6 +72,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             yield
         finally:
+            # Graceful shutdown (08 §14.7): tell clients to reconnect, let queued frames
+            # drain, then stop background tasks and close the pool.
+            await connections.close_all(
+                1001, "server_shutdown", drain_timeout=settings.ws_shutdown_drain_seconds
+            )
+            await tasks.shutdown()
             await engine.dispose()
             logger.info("Database engine disposed", extra={"event": "db.engine_disposed"})
             logger.info("Application stopped", extra={"event": "app.shutdown"})
@@ -86,6 +111,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.add_middleware(RequestIdMiddleware)
 
     app.include_router(health.router)
+    app.include_router(gateway.router)
     app.include_router(identity_routers.router)
     app.include_router(identity_routers.authenticated)
     app.include_router(users_router.router)

@@ -16,7 +16,8 @@ from sqlalchemy.pool import NullPool
 
 # Importing the model modules registers their tables on Base.metadata for autogenerate.
 import app.modules.identity.infrastructure.models
-import app.platform.audit  # noqa: F401
+import app.platform.audit
+import app.realtime.publisher  # noqa: F401
 from alembic import context
 from app.platform.models_base import Base
 

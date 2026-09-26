@@ -4,6 +4,7 @@ from typing import Self
 
 from app.modules.identity.infrastructure.refresh_token_repository import RefreshTokenRepository
 from app.modules.identity.infrastructure.user_repository import UserRepository
+from app.modules.identity.infrastructure.ws_ticket_repository import WsTicketRepository
 from app.platform.audit import AuditLogger
 from app.platform.db import SessionFactory, UnitOfWork
 
@@ -12,6 +13,7 @@ class SqlIdentityUnitOfWork(UnitOfWork):
     users: UserRepository
     refresh_tokens: RefreshTokenRepository
     audit: AuditLogger
+    ws_tickets: WsTicketRepository
 
     def __init__(self, session_factory: SessionFactory) -> None:
         super().__init__(session_factory)
@@ -21,4 +23,5 @@ class SqlIdentityUnitOfWork(UnitOfWork):
         self.users = UserRepository(self.session)
         self.refresh_tokens = RefreshTokenRepository(self.session)
         self.audit = AuditLogger(self.session)
+        self.ws_tickets = WsTicketRepository(self.session)
         return self

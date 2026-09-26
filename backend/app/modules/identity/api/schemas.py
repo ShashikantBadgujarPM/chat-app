@@ -98,6 +98,11 @@ class LoginResponse(TokenResponse):
     user: UserMe
 
 
+class WsTicketResponse(BaseModel):
+    ticket: str
+    expires_in: int
+
+
 class SessionOut(BaseModel):
     family_id: UUID
     created_at: UtcDateTime

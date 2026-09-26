@@ -62,12 +62,18 @@ ignore = [
 "tests/**" = [
     "S101",  # assert is the point of a test
     "S105", "S106",  # fixed fake secrets are test data
+    "ASYNC109",  # test helpers take an explicit timeout for readability
 ]
 
 [tool.mypy]
 python_version = "3.12"
 strict = true
 plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+# asyncpg ships no type information; only the outbox listener uses it directly.
+module = ["asyncpg", "asyncpg.*"]
+ignore_missing_imports = true
 
 [tool.pydantic-mypy]
 init_forbid_extra = true

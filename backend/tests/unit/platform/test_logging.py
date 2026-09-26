@@ -116,3 +116,13 @@ class TestLogContext:
 
         assert results == ["request-a", "request-b"]
         assert get_log_context().request_id is None
+
+
+def test_masks_ws_tickets_in_query_strings() -> None:
+    record = logging.LogRecord(
+        "tests", logging.INFO, __file__, 1, "GET %s", ("/ws?ticket=abc123SECRET&x=1",), None
+    )
+    RedactingFilter().filter(record)
+
+    assert "abc123SECRET" not in record.getMessage()
+    assert "ticket=[REDACTED]&x=1" in record.getMessage()
