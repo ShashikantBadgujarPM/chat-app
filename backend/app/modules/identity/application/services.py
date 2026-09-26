@@ -48,7 +48,7 @@ LOCKOUT_DURATION = timedelta(minutes=15)
 
 
 @cache
-def _known_timezones() -> frozenset[str]:
+def known_timezones() -> frozenset[str]:
     return frozenset(zoneinfo.available_timezones())
 
 
@@ -148,7 +148,7 @@ class RegisterUser(_UseCase):
         password: str,
         timezone: str = "UTC",
     ) -> User:
-        if timezone not in _known_timezones():
+        if timezone not in known_timezones():
             raise InvalidTimezone()
         validate_password(password)
         password_hash = await self._deps.hasher.hash(password)

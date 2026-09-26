@@ -34,3 +34,28 @@ button {
 [role='alert'] {
   color: #b00020;
 }
+
+.user-search {
+  position: relative;
+  display: grid;
+  gap: 0.25rem;
+  max-width: 24rem;
+  margin-block: 1rem;
+}
+
+.user-search [role='listbox'] {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid #8884;
+}
+
+.user-search [role='option'] {
+  padding: 0.5rem;
+  cursor: pointer;
+}
+
+.user-search [role='option'][aria-selected='true'],
+.user-search [role='option']:hover {
+  background: #8882;
+}

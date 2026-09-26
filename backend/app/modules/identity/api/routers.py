@@ -184,14 +184,3 @@ async def change_password(
         new_password=body.new_password,
         client=client,
     )
-
-
-# Temporary (M02): proves the frontend is authenticated. M03 owns /users.
-users_router = APIRouter(
-    prefix="/api/v1/users", tags=["users"], dependencies=authenticated_route_dependencies
-)
-
-
-@users_router.get("/me")
-async def get_me(current: Authenticated) -> UserMe:
-    return UserMe.from_user(current.user)

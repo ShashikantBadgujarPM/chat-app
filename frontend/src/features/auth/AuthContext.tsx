@@ -33,6 +33,8 @@ type AuthState =
   | { status: 'signed-in'; user: UserMe }
 
 type AuthContextValue = AuthState & {
+  /** Re-read /users/me after a profile change. */
+  reloadUser: () => Promise<void>
   login: (usernameOrEmail: string, password: string) => Promise<void>
   register: (input: RegisterInput) => Promise<void>
   logout: () => Promise<void>
@@ -71,6 +73,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [],
   )
 
+  const reloadUser = useCallback(async () => {
+    const user = await api<UserMe>('/api/v1/users/me')
+    setState({ status: 'signed-in', user })
+  }, [])
+
   const login = useCallback(async (usernameOrEmail: string, password: string) => {
     const result = await api<LoginResponse>('/api/v1/auth/login', {
       method: 'POST',
@@ -102,7 +109,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  const value = useMemo(() => ({ ...state, login, register, logout }), [state, login, register, logout])
+  const value = useMemo(
+    () => ({ ...state, reloadUser, login, register, logout }),
+    [state, reloadUser, login, register, logout],
+  )
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 

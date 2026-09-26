@@ -72,6 +72,14 @@ class InvariantViolation(DomainError):
     default_message = "The request would break a rule that must always hold."
 
 
+class BadRequestError(AppError):
+    """A malformed request that the schema can't express (docs/design/07 §13.1)."""
+
+    status_code = 400
+    default_code = "bad_request"
+    default_message = "The request is malformed."
+
+
 class NotFoundError(AppError):
     status_code = 404
     default_code = "not_found"

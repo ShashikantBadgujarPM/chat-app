@@ -3,6 +3,7 @@ import { AuthProvider } from './features/auth/AuthContext'
 import { LoginPage, RegisterPage } from './features/auth/AuthPages'
 import { RequireAuth } from './features/auth/RequireAuth'
 import { HomePage } from './features/home/HomePage'
+import { MyProfilePage, PublicProfilePage } from './features/users/ProfilePages'
 
 function App() {
   return (
@@ -17,6 +18,22 @@ function App() {
               element={
                 <RequireAuth>
                   <HomePage />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/me"
+              element={
+                <RequireAuth>
+                  <MyProfilePage />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/users/:userId"
+              element={
+                <RequireAuth>
+                  <PublicProfilePage />
                 </RequireAuth>
               }
             />

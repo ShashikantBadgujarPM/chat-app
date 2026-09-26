@@ -35,6 +35,39 @@ class ChangePasswordRequest(RequestModel):
     new_password: Password
 
 
+class UpdateMeRequest(RequestModel):
+    """Partial update: only the fields present are changed."""
+
+    display_name: DisplayName | None = None
+    timezone: Timezone | None = None
+
+
+class DeleteMeRequest(RequestModel):
+    password: Password
+
+
+class PresenceOut(BaseModel):
+    status: Literal["online", "offline"]
+    last_seen_at: UtcDateTime | None
+
+
+# Until presence exists (M08), everyone is reported offline with no last-seen time.
+OFFLINE = PresenceOut(status="offline", last_seen_at=None)
+
+
+class UserPublic(BaseModel):
+    id: UUID
+    username: str
+    display_name: str
+    presence: PresenceOut
+
+    @classmethod
+    def from_user(cls, user: User, presence: PresenceOut = OFFLINE) -> "UserPublic":
+        return cls(
+            id=user.id, username=user.username, display_name=user.display_name, presence=presence
+        )
+
+
 class UserMe(BaseModel):
     id: UUID
     username: str

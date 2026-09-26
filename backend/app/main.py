@@ -13,6 +13,7 @@ from fastapi import FastAPI
 
 from app.config import Settings, get_settings
 from app.modules.identity.api import routers as identity_routers
+from app.modules.identity.api import users_router
 from app.modules.identity.api.deps import register_identity_exception_handlers
 from app.platform import debug, health
 from app.platform.clock import SystemClock
@@ -85,7 +86,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(health.router)
     app.include_router(identity_routers.router)
     app.include_router(identity_routers.authenticated)
-    app.include_router(identity_routers.users_router)
+    app.include_router(users_router.router)
     if settings.env == "test":
         app.include_router(debug.router)
 

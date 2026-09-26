@@ -36,6 +36,25 @@ class UserRepositoryPort(Protocol):
 
     async def reset_failed_logins(self, user_id: UUID) -> None: ...
 
+    async def get_active_by_id(self, user_id: UUID) -> User | None: ...
+
+    async def search(
+        self,
+        query: str,
+        *,
+        exclude_id: UUID,
+        after: tuple[float, UUID] | None,
+        limit: int,
+    ) -> list[tuple[User, float]]:
+        """Active users matching `query`, best first, after the keyset `after`."""
+        ...
+
+    async def update_profile(
+        self, user_id: UUID, *, display_name: str | None = None, timezone: str | None = None
+    ) -> User: ...
+
+    async def soft_delete(self, user_id: UUID, *, now: datetime) -> None: ...
+
     async def set_password_hash(self, user_id: UUID, password_hash: str) -> None: ...
 
 
