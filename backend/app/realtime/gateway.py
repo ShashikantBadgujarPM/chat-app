@@ -103,14 +103,21 @@ async def websocket_endpoint(websocket: WebSocket, ticket: str | None = None) ->
         return
 
     manager: ConnectionManager = app.state.connections
+    # Read once, before the connection exists: it's both the resume cursor the client
+    # gets in `hello` and the connection's delivery watermark (see `deliver`), so the
+    # two can't disagree about where "before this connection" ends.
+    latest_event_id = await _latest_event_id(websocket)
     connection = manager.new_connection(
-        websocket, user_id=owner.user_id, session_family_id=owner.session_family_id
+        websocket,
+        user_id=owner.user_id,
+        session_family_id=owner.session_family_id,
+        min_event_id=latest_event_id,
     )
     with bind_log_context(connection_id=connection.id, user_id=str(owner.user_id)):
         # `hello` must be the first frame. Queue it *before* registering: once the
         # connection is registered, live events can be queued at any await. An event
-        # committed after latest_event_id was read but before registration is recovered
-        # by the client's sync from latest_event_id (M09).
+        # committed after latest_event_id was read but before registration is delivered
+        # live and, if it's also somehow redelivered, M09's sync will dedupe it.
         connection.enqueue(
             control(
                 "hello",
@@ -119,7 +126,7 @@ async def websocket_endpoint(websocket: WebSocket, ticket: str | None = None) ->
                     "user_id": str(owner.user_id),
                     "server_time": _now_iso(),
                     "heartbeat_interval_s": settings.ws_heartbeat_interval_seconds,
-                    "latest_event_id": await _latest_event_id(websocket),
+                    "latest_event_id": latest_event_id,
                 },
             )
         )

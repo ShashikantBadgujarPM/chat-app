@@ -43,11 +43,17 @@ class Connection:
         user_id: UUID,
         session_family_id: UUID,
         queue_size: int,
+        min_event_id: int = 0,
     ) -> None:
         self.id = uuid4().hex
         self.websocket = websocket
         self.user_id = user_id
         self.session_family_id = session_family_id
+        # The outbox id read just before this connection registered (08 §14.4). An
+        # event this old already happened before the connection existed: something
+        # committed and dispatched between that read and registration is a genuine
+        # live event and must still be delivered, so this is a floor, not a cursor.
+        self.min_event_id = min_event_id
         self.queue: asyncio.Queue[str | _Stop] = asyncio.Queue(maxsize=queue_size)
         self.connected_at = time.monotonic()
         self.last_client_frame_at = self.connected_at
@@ -119,13 +125,19 @@ class ConnectionManager:
     # --- registration ----------------------------------------------------------------
 
     def new_connection(
-        self, websocket: WebSocket, *, user_id: UUID, session_family_id: UUID
+        self,
+        websocket: WebSocket,
+        *,
+        user_id: UUID,
+        session_family_id: UUID,
+        min_event_id: int = 0,
     ) -> Connection:
         return Connection(
             websocket,
             user_id=user_id,
             session_family_id=session_family_id,
             queue_size=self._queue_size,
+            min_event_id=min_event_id,
         )
 
     def register(self, connection: Connection) -> None:
@@ -166,12 +178,27 @@ class ConnectionManager:
     # --- delivery --------------------------------------------------------------------
 
     def deliver(self, event: WSEvent) -> int:
-        """Queue the event for every local connection of its recipients.
+        """Queue the event for every local connection of its recipients whose
+        watermark it clears (below, see `Connection.min_event_id`).
 
         Returns the number of connections it was queued for. Recipients without a local
         connection are skipped: they catch up through REST state and sync.
         """
-        return self.deliver_frame(event.to_frame(), event.recipient_user_ids)
+        frame: str | None = None  # serialized lazily: most events reach 0-1 connections
+        delivered = 0
+        for user_id in event.recipient_user_ids:
+            for connection in list(self._by_user.get(user_id, {}).values()):
+                if event.id is not None and event.id <= connection.min_event_id:
+                    # Committed (and, per this connection, dispatched) before it
+                    # registered: already reflected in its initial REST-fetched state.
+                    continue
+                if frame is None:
+                    frame = event.to_frame()
+                if connection.enqueue(frame):
+                    delivered += 1
+                else:
+                    self._close_slow_consumer(connection)
+        return delivered
 
     def deliver_frame(self, frame: str, user_ids: Iterable[UUID]) -> int:
         delivered = 0

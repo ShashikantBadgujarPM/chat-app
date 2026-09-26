@@ -33,10 +33,15 @@ def manager(queue_size: int = 4) -> ConnectionManager:
     return ConnectionManager(supervisor=TaskSupervisor(), queue_size=queue_size)
 
 
-def connect(mgr: ConnectionManager, user_id: Any, *, blocked: bool = False) -> Any:
+def connect(
+    mgr: ConnectionManager, user_id: Any, *, blocked: bool = False, min_event_id: int = 0
+) -> Any:
     socket = FakeWebSocket(blocked=blocked)
     connection = mgr.new_connection(
-        cast(WebSocket, socket), user_id=user_id, session_family_id=uuid4()
+        cast(WebSocket, socket),
+        user_id=user_id,
+        session_family_id=uuid4(),
+        min_event_id=min_event_id,
     )
     mgr.register(connection)
     return connection, socket
@@ -77,6 +82,10 @@ async def test_unregister_stops_delivery_and_tracks_online_state() -> None:
     user = uuid4()
     first, _ = connect(mgr, user)
     second, _ = connect(mgr, user)
+    # Let both sender tasks actually start (docs/design/11 §21.3: an unstarted task's
+    # coroutine can otherwise outlive this test and warn "never awaited" from whatever
+    # unrelated test the garbage collector next visits).
+    await settle()
     went_offline: list[Any] = []
     mgr.on_last_disconnection = went_offline.append
 
@@ -96,7 +105,7 @@ async def test_a_full_queue_closes_that_connection_with_4008_only() -> None:
     other_user = uuid4()
     _, healthy_socket = connect(mgr, other_user)
 
-    for n in range(6):
+    for n in range(1, 7):  # ids start at 1, like a real Postgres identity column
         mgr.deliver(
             WSEvent(type="t", payload={"n": n}, id=n, recipient_user_ids=(user, other_user))
         )
@@ -112,8 +121,59 @@ async def test_close_is_scheduled_once_for_a_burst_of_overflows() -> None:
     user = uuid4()
     stuck, _ = connect(mgr, user, blocked=True)
 
-    for n in range(20):
+    for n in range(1, 21):  # ids start at 1, like a real Postgres identity column
         mgr.deliver(WSEvent(type="t", payload={}, id=n, recipient_user_ids=(user,)))
     await settle()
 
     assert stuck.close_code == 4008
+
+
+async def test_a_connection_never_receives_an_event_from_before_it_registered() -> None:
+    """Reproduces the race in docs/design/08 §14.4: an event committed (and given its
+    outbox id) before a connection reads its watermark must never reach that
+    connection, however late the listener happens to dispatch it (R-... realtime)."""
+    mgr = manager()
+    user = uuid4()
+    # As if latest_event_id was 10 when this connection registered.
+    _, tab = connect(mgr, user, min_event_id=10)
+
+    assert (
+        mgr.deliver(WSEvent(type="message.created", payload={}, id=9, recipient_user_ids=(user,)))
+        == 0
+    )
+    assert (
+        mgr.deliver(WSEvent(type="message.created", payload={}, id=10, recipient_user_ids=(user,)))
+        == 0
+    )
+    await settle()
+    assert tab.sent == []
+
+
+async def test_a_connection_still_receives_events_after_its_watermark() -> None:
+    mgr = manager()
+    user = uuid4()
+    _, tab = connect(mgr, user, min_event_id=10)
+
+    assert (
+        mgr.deliver(WSEvent(type="message.created", payload={}, id=11, recipient_user_ids=(user,)))
+        == 1
+    )
+    await settle()
+    assert len(tab.sent) == 1
+
+
+async def test_the_watermark_is_per_connection_not_global() -> None:
+    """One tab reconnecting (a fresh, higher watermark) must not blind an older tab
+    that is still open and legitimately expecting events below that watermark."""
+    mgr = manager()
+    user = uuid4()
+    _, old_tab = connect(mgr, user, min_event_id=0)
+    _, new_tab = connect(mgr, user, min_event_id=10)
+
+    assert (
+        mgr.deliver(WSEvent(type="message.created", payload={}, id=5, recipient_user_ids=(user,)))
+        == 1
+    )
+    await settle()
+    assert len(old_tab.sent) == 1
+    assert new_tab.sent == []
