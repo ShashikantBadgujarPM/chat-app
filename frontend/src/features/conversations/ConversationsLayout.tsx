@@ -71,6 +71,7 @@ export function ConversationsLayout() {
           </small>
           <nav>
             <Link to="/me">Profile</Link> ·{' '}
+            <Link to="/scheduled">Scheduled</Link> ·{' '}
             <button type="button" className="link" onClick={() => void auth.logout()}>
               Sign out
             </button>

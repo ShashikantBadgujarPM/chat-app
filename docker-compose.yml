@@ -1,8 +1,10 @@
 # Base stack (docs/design/12 §22.1). Development additions live in
 # docker-compose.override.yml, which `docker compose` loads automatically.
 #
-# `migrate` applies the schema as the owner role, then exits; `api` starts only after
-# it succeeds. The `worker` arrives in M11.
+# `migrate` applies the schema as the owner role, then exits; `api` and `worker` start
+# only after it succeeds. `worker` (M11) delivers scheduled messages and runs
+# housekeeping; `docker compose up --scale worker=3` is safe (SKIP LOCKED + advisory
+# locks arbitrate between replicas).
 #
 # Passwords are interpolated into database URLs, so keep them URL-safe.
 
@@ -84,6 +86,44 @@ services:
       timeout: 5s
       start_period: 10s
       retries: 3
+
+  worker:
+    build:
+      context: ./backend
+      target: runtime
+      args:
+        APP_VERSION: ${APP_VERSION:-dev}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    command: ["python", "-m", "app.worker"]
+    environment:
+      ENV: ${ENV:-production}
+      DEBUG: ${DEBUG:-false}
+      APP_VERSION: ${APP_VERSION:-dev}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      DATABASE_URL: postgresql+asyncpg://chat_app:${CHAT_APP_PASSWORD}@db:5432/chat
+      DB_POOL_SIZE: ${WORKER_DB_POOL_SIZE:-5}
+      DB_MAX_OVERFLOW: ${WORKER_DB_MAX_OVERFLOW:-2}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+    healthcheck:
+      # No HTTP server here: the heartbeat file's age is the liveness signal (09 §17.1).
+      test:
+        - CMD
+        - python
+        - -c
+        - |
+          import sys, time
+          age = time.time() - __import__("os").path.getmtime("/tmp/worker-heartbeat")
+          sys.exit(0 if age < 30 else 1)
+      interval: 15s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    # Graceful shutdown (09 §17.6): finish and commit the in-flight batch, then exit.
+    stop_grace_period: 15s
 
 volumes:
   pgdata:

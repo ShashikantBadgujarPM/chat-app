@@ -27,6 +27,7 @@ class MessageModel(Base):
         UniqueConstraint(
             "sender_id", "client_message_id", name="uq_messages_sender_id_client_message_id"
         ),
+        UniqueConstraint("scheduled_message_id", name="uq_messages_scheduled_message_id"),
         CheckConstraint("(deleted_at IS NULL) = (body IS NOT NULL)", name="body_or_deleted"),
         Index("ix_messages_conversation_id_seq_desc", "conversation_id", text("seq DESC")),
         Index(
@@ -51,6 +52,8 @@ class MessageModel(Base):
         PG_UUID(as_uuid=True), ForeignKey("messages.id", ondelete="SET NULL")
     )
     client_message_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
+    # FK to scheduled_messages (migration 0007). Not declared here: the two tables
+    # reference each other, and the ORM never needs to follow this link.
     scheduled_message_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()

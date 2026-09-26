@@ -6,6 +6,7 @@ docs/design/12 §22.4).
 """
 
 import os
+import tempfile
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Any, Literal, Self
@@ -68,6 +69,23 @@ class Settings(BaseSettings):
     # Presence (docs/design/08 §14.7): how long a user may be disconnected before
     # others see them go offline. Absorbs reloads and short network blips.
     presence_grace_seconds: float = Field(default=10.0, ge=0)
+
+    # Scheduled messages (docs/design/07 §Scheduled messages, 09 §16-17).
+    schedule_min_lead_seconds: int = Field(default=30, ge=0)
+    schedule_max_horizon_days: int = Field(default=365, ge=1)
+    schedule_max_pending_per_user: int = Field(default=100, ge=1)
+    schedule_max_lateness_seconds: int = Field(default=24 * 3600, ge=1)
+    schedule_max_attempts: int = Field(default=5, ge=1)
+
+    # The worker process (09 §17.1-17.2).
+    scheduler_poll_interval_seconds: float = Field(default=2.0, gt=0)
+    scheduler_batch_size: int = Field(default=20, ge=1, le=500)
+    scheduler_stats_interval_seconds: float = Field(default=60.0, gt=0)
+    outbox_retention_days: int = Field(default=7, ge=1)
+    worker_heartbeat_file: Path = Field(
+        default_factory=lambda: Path(tempfile.gettempdir()) / "worker-heartbeat"
+    )
+    worker_heartbeat_interval_seconds: float = Field(default=10.0, gt=0)
 
     cookie_secure: bool = True
     allowed_origins: Annotated[list[str], NoDecode] = Field(

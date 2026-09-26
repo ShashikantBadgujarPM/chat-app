@@ -33,6 +33,13 @@ services:
     ports:
       - "8000:8000"
 
+  worker:
+    build:
+      target: dev
+    volumes:
+      - ./backend/app:/app/app
+      - ./backend/tests:/app/tests
+
   web:
     image: node:20-alpine
     working_dir: /app

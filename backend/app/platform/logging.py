@@ -30,7 +30,7 @@ _STANDARD_RECORD_ATTRS = frozenset(
     vars(logging.LogRecord("", 0, "", 0, "", None, None)).keys() | {"message", "asctime"}
 )
 # Fields this module adds itself; rendered in fixed positions rather than as extras.
-_CONTEXT_FIELDS = ("request_id", "user_id", "connection_id", "batch_id")
+_CONTEXT_FIELDS = ("request_id", "user_id", "connection_id", "batch_id", "worker_id")
 _SERVICE_FIELDS = ("service", "env", "version")
 _OWN_FIELDS = frozenset({"event", *_CONTEXT_FIELDS, *_SERVICE_FIELDS})
 
@@ -46,6 +46,7 @@ class LogContext:
     user_id: str | None = None
     connection_id: str | None = None
     batch_id: str | None = None
+    worker_id: str | None = None
 
 
 _log_context: ContextVar[LogContext] = ContextVar("log_context", default=LogContext())  # noqa: B039 - immutable default

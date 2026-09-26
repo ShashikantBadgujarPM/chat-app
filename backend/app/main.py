@@ -19,6 +19,7 @@ from app.modules.identity.api import routers as identity_routers
 from app.modules.identity.api import users_router
 from app.modules.identity.api.deps import register_identity_exception_handlers
 from app.modules.messaging.api import routers as messaging_routers
+from app.modules.scheduling.api import router as scheduling_router
 from app.platform import debug, health
 from app.platform.clock import SystemClock
 from app.platform.db import (
@@ -142,6 +143,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(conversations_router.router)
     app.include_router(messaging_routers.conversation_messages_router)
     app.include_router(messaging_routers.messages_router)
+    app.include_router(scheduling_router.router)
     if settings.env == "test":
         app.include_router(debug.router)
 

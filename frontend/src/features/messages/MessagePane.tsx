@@ -8,6 +8,7 @@ import { typingText } from '../presence/presence'
 import { CursorSender } from './readCursor'
 import { markDeleted, upsertMessage } from './reducer'
 import type { MessageState, Pending } from './reducer'
+import { ScheduleDialog } from '../scheduled/ScheduleDialog'
 
 type Props = {
   conversationId: string
@@ -66,6 +67,9 @@ export function MessagePane({
   const [loadingOlder, setLoadingOlder] = useState(false)
   const [replyTo, setReplyTo] = useState<Message | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
+  // Non-null while the "Schedule send" dialog is open, holding the composer's draft.
+  const [scheduleDraft, setScheduleDraft] = useState<string | null>(null)
   const listRef = useRef<HTMLOListElement>(null)
   const keepScroll = useRef<{ height: number; top: number } | null>(null)
   const stickToBottom = useRef(true)
@@ -221,6 +225,18 @@ export function MessagePane({
     void deliver(item)
   }
 
+  function openSchedule(body: string) {
+    setScheduleDraft(body)
+    setError(null)
+    setNotice(null)
+  }
+
+  function scheduled(scheduledAt: string) {
+    setScheduleDraft(null)
+    setReplyTo(null)
+    setNotice(`Message scheduled for ${new Date(scheduledAt).toLocaleString()}.`)
+  }
+
   async function edit(message: Message) {
     const next = window.prompt('Edit message', message.body ?? '')
     if (next === null || next.trim() === message.body) return
@@ -286,12 +302,23 @@ export function MessagePane({
         {typingLine ?? '\u00a0'}
       </p>
       {error && <p role="alert">{error}</p>}
+      {notice && <p role="status">{notice}</p>}
       <Composer
         conversationId={conversationId}
         replyTo={replyTo}
         onCancelReply={() => setReplyTo(null)}
         onSubmit={submit}
+        onSchedule={openSchedule}
       />
+      {scheduleDraft !== null && (
+        <ScheduleDialog
+          conversationId={conversationId}
+          initialBody={scheduleDraft}
+          replyTo={replyTo}
+          onClose={() => setScheduleDraft(null)}
+          onScheduled={scheduled}
+        />
+      )}
     </div>
   )
 }
@@ -318,6 +345,7 @@ function MessageItem({
         <strong>{message.sender?.display_name ?? 'Deleted user'}</strong>{' '}
         <time dateTime={message.created_at}>{new Date(message.created_at).toLocaleTimeString()}</time>
         {message.edited_at && !deleted && <small> (edited)</small>}
+        {message.scheduled_message_id && <small> · scheduled</small>}
       </header>
       {message.reply_to && (
         <blockquote className="reply-preview">
@@ -360,11 +388,13 @@ function Composer({
   replyTo,
   onCancelReply,
   onSubmit,
+  onSchedule,
 }: {
   conversationId: string
   replyTo: Message | null
   onCancelReply: () => void
   onSubmit: (body: string) => void
+  onSchedule: (body: string) => void
 }) {
   const [body, setBody] = useState('')
   const lastTypingSent = useRef(0)
@@ -406,6 +436,14 @@ function Composer({
     }
   }
 
+  function schedule() {
+    const text = body.trim()
+    if (!text) return
+    onSchedule(text)
+    setBody('')
+    typingStop()
+  }
+
   return (
     <form className="composer" onSubmit={send}>
       {replyTo && (
@@ -432,6 +470,9 @@ function Composer({
       />
       <button type="submit" disabled={!body.trim()}>
         Send
+      </button>
+      <button type="button" onClick={schedule} disabled={!body.trim()}>
+        Schedule send
       </button>
     </form>
   )
