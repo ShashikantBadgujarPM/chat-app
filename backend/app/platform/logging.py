@@ -63,6 +63,16 @@ def bind_log_context(**changes: str | None) -> Iterator[LogContext]:
         _log_context.reset(token)
 
 
+def update_log_context(**changes: str | None) -> None:
+    """Add fields to the context of the current request (or connection, or batch).
+
+    Only call this inside a `bind_log_context` block, such as the one the request-id
+    middleware opens for every request: that block's exit restores the previous
+    context, so these fields don't leak into the next request.
+    """
+    _log_context.set(replace(_log_context.get(), **changes))
+
+
 class ContextFilter(logging.Filter):
     def __init__(self, service: str, env: str, version: str) -> None:
         super().__init__()
@@ -86,7 +96,7 @@ class RedactingFilter(logging.Filter):
             if _SENSITIVE_KEY.search(key):
                 setattr(record, key, REDACTED)
             elif isinstance(value, Mapping):
-                setattr(record, key, _redact_mapping(value))
+                setattr(record, key, redact_mapping(value))
         message = record.getMessage()
         redacted = _JWT_LIKE.sub(REDACTED, message)
         if redacted != message:
@@ -94,13 +104,14 @@ class RedactingFilter(logging.Filter):
         return True
 
 
-def _redact_mapping(value: Mapping[Any, Any]) -> dict[Any, Any]:
+def redact_mapping(value: Mapping[Any, Any]) -> dict[Any, Any]:
+    """Copy of `value` with sensitive keys masked, recursively."""
     result: dict[Any, Any] = {}
     for key, item in value.items():
         if isinstance(key, str) and _SENSITIVE_KEY.search(key):
             result[key] = REDACTED
         elif isinstance(item, Mapping):
-            result[key] = _redact_mapping(item)
+            result[key] = redact_mapping(item)
         else:
             result[key] = item
     return result

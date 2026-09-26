@@ -50,3 +50,15 @@ The implementation agent records spec ambiguities here ([15 §26.3](../design/15
 ### Q-009 Test server sharing under xdist
 - **Question:** 11 §21.3 says "start one Postgres container" with a database per xdist worker. Each xdist worker is a separate process, so sharing one container would need cross-process coordination.
 - **Resolution (implementation):** without `TEST_DATABASE_ADMIN_URL`, each xdist worker starts its own testcontainer. With it, all workers share that server. Migrations are serialized with an advisory lock taken in the `postgres` database, because concurrent `ALTER ROLE` statements from several workers raised "tuple concurrently updated". Migration 0001 also skips `ALTER ROLE` when the setting already exists. Revisit if CI container start-up time becomes a problem.
+
+## Found while implementing M02 (2026-09-26)
+
+### Q-010 Lockout timestamps come from the Clock port
+- **Question:** R-18 writes the lockout with DB `now()`, but M02 and 11 §21.4 require testing "unlock after the window" with a fake clock, which can't move DB `now()`.
+- **Resolution:** the atomic `UPDATE … RETURNING` from R-18 is kept, so increments still can't be lost, but it binds `:now` from the `Clock` port. The lock check and the refresh grace window compare against the same clock. With a single API instance there is no clock-skew concern between writers. JWT time checks also use the injected clock, not PyJWT's wall clock.
+- **Updated:** none (implementation detail; R-18's guarantee is unchanged).
+
+### Q-011 Failures that must persist are committed before the error is raised
+- **Question:** the failed-login counter, reuse-detection family revocation and their audit rows must survive a failing request, but raising inside `async with uow:` rolls them back.
+- **Resolution:** those use cases return the error from inside the transaction and raise it after the commit (`Login`, `RefreshSession` in `identity/application/services.py`). A unit test with a staging fake UoW pins this.
+- **Updated:** none (pattern documented in the module docstring).

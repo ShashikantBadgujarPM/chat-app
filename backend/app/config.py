@@ -37,6 +37,22 @@ class Settings(BaseSettings):
     # Accepted for verification only, during a key rotation window.
     jwt_secret_previous: SecretStr | None = None
 
+    access_token_ttl_seconds: int = Field(default=900, gt=0)
+    refresh_token_ttl_days: int = Field(default=14, gt=0)
+
+    # Argon2id cost (docs/design/06 §11.4). Pinned here so a library upgrade can't
+    # silently change it; tests lower it to keep the suite fast.
+    argon2_time_cost: int = Field(default=3, ge=1)
+    argon2_memory_cost_kib: int = Field(default=65536, ge=8)
+    argon2_parallelism: int = Field(default=4, ge=1)
+
+    # Rate limits (docs/design/07 §13.4). Buckets are per process (ADR-002).
+    rate_limit_enabled: bool = True
+    rate_limit_login_per_minute: int = Field(default=10, ge=1)
+    rate_limit_register_per_hour: int = Field(default=5, ge=1)
+    rate_limit_refresh_per_minute: int = Field(default=30, ge=1)
+    rate_limit_authenticated_per_minute: int = Field(default=300, ge=1)
+
     cookie_secure: bool = True
     allowed_origins: Annotated[list[str], NoDecode] = Field(
         default_factory=lambda: ["http://localhost:5173"]

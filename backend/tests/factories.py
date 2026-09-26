@@ -17,7 +17,7 @@ async def make_user(session: AsyncSession, **overrides: str) -> User:
     n = next(_sequence)
     values = {
         "username": f"user{n}",
-        "email": f"user{n}@example.test",
+        "email": f"user{n}@example.com",
         "display_name": f"User {n}",
         "password_hash": FAKE_PASSWORD_HASH,
     }

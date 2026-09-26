@@ -39,7 +39,7 @@ from alembic import command
 from app.platform.db import SessionFactory
 from app.platform.models_base import Base
 
-BACKEND_DIR = Path(__file__).resolve().parents[2]
+BACKEND_DIR = Path(__file__).resolve().parents[1]
 APP_ROLE = "chat_app"
 MIGRATION_LOCK_KEY = 815_001  # arbitrary, unique to this harness
 

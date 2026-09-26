@@ -6,7 +6,7 @@ from fastapi import FastAPI
 
 from app.main import create_app
 from tests.conftest import SettingsFactory
-from tests.integration.conftest import DatabaseUnderTest
+from tests.harness import DatabaseUnderTest
 
 
 @pytest.fixture

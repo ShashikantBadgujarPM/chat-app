@@ -14,6 +14,10 @@ os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://unused:unused@127.0.
 from app.config import Settings  # after the environment defaults above
 from app.main import create_app
 
+# The real-PostgreSQL fixtures. They are lazy: only tests that request them start a
+# database, so the rest of the suite runs without Docker.
+pytest_plugins = ["tests.harness"]
+
 TEST_JWT_SECRET = "test-only-jwt-secret-not-for-real-use-000000"
 # Nothing listens on port 1, so API tests without the integration harness see the
 # database as unavailable: connection refused, fast.

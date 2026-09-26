@@ -12,7 +12,10 @@ from functools import partial
 from fastapi import FastAPI
 
 from app.config import Settings, get_settings
+from app.modules.identity.api import routers as identity_routers
+from app.modules.identity.api.deps import register_identity_exception_handlers
 from app.platform import debug, health
+from app.platform.clock import SystemClock
 from app.platform.db import check_database, create_engine, create_session_factory
 from app.platform.errors import UnhandledExceptionMiddleware, register_exception_handlers
 from app.platform.logging import configure_logging
@@ -21,6 +24,8 @@ from app.platform.middleware import (
     BodySizeLimitMiddleware,
     RequestIdMiddleware,
 )
+from app.platform.rate_limit import TokenBucketLimiter
+from app.platform.security import Argon2PasswordHasher, JwtTokenIssuer
 
 logger = logging.getLogger(__name__)
 
@@ -61,9 +66,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         openapi_url=None if is_production else "/openapi.json",
     )
     app.state.settings = settings
+    # Ports and process-wide services. Tests replace these (e.g. a FrozenClock).
+    app.state.clock = SystemClock()
+    app.state.password_hasher = Argon2PasswordHasher.from_settings(settings)
+    app.state.token_issuer = JwtTokenIssuer.from_settings(settings)
+    app.state.rate_limiter = TokenBucketLimiter()
     health.init_readiness_checks(app)
 
     register_exception_handlers(app)
+    register_identity_exception_handlers(app)
 
     # add_middleware wraps the current stack, so the last one added is outermost.
     app.add_middleware(BodySizeLimitMiddleware, max_bytes=settings.max_request_body_bytes)
@@ -72,6 +83,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.add_middleware(RequestIdMiddleware)
 
     app.include_router(health.router)
+    app.include_router(identity_routers.router)
+    app.include_router(identity_routers.authenticated)
+    app.include_router(identity_routers.users_router)
     if settings.env == "test":
         app.include_router(debug.router)
 

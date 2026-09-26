@@ -73,6 +73,9 @@ class AccessLogMiddleware:
         finally:
             # FastAPI's router stores the matched route on the (shared) scope dict.
             route = getattr(scope.get("route"), "path", None)
+            # Set by get_current_user on request.state (scope["state"]); the log context
+            # itself has already been reset when this runs.
+            user_id = scope.get("state", {}).get("user_id") or get_log_context().user_id
             access_logger.log(
                 logging.ERROR if status_code >= 500 else logging.INFO,
                 "%s %s %s",
@@ -86,7 +89,7 @@ class AccessLogMiddleware:
                     "route": route,
                     "status": status_code,
                     "duration_ms": round((time.perf_counter() - started) * 1000, 2),
-                    "user_id": get_log_context().user_id,
+                    "user_id": user_id,
                 },
             )
 

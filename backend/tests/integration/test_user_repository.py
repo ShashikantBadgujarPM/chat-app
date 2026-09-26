@@ -3,9 +3,9 @@ from uuid import uuid4
 
 import pytest
 from sqlalchemy import text, update
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.identity.domain.errors import EmailTaken, UsernameTaken
 from app.modules.identity.domain.user import UserStatus
 from app.modules.identity.infrastructure.models import UserModel
 from app.modules.identity.infrastructure.user_repository import UserRepository
@@ -21,7 +21,7 @@ async def soft_delete(session: AsyncSession, username: str) -> None:
 async def test_add_returns_a_domain_user_with_database_defaults(session: AsyncSession) -> None:
     user = await UserRepository(session).add(
         username="alice",
-        email="alice@example.test",
+        email="alice@example.com",
         display_name="Alice",
         password_hash="secret-hash-value",
     )
@@ -44,11 +44,11 @@ async def test_get_by_id(session: AsyncSession) -> None:
     assert await repository.get_by_id(uuid4()) is None
 
 
-@pytest.mark.parametrize("identifier", ["Alice", "ALICE", "alice@EXAMPLE.test"])
+@pytest.mark.parametrize("identifier", ["Alice", "ALICE", "alice@EXAMPLE.com"])
 async def test_get_by_username_or_email_is_case_insensitive(
     session: AsyncSession, identifier: str
 ) -> None:
-    created = await make_user(session, username="alice", email="alice@example.test")
+    created = await make_user(session, username="alice", email="alice@example.com")
 
     found = await UserRepository(session).get_by_username_or_email(identifier)
 
@@ -66,22 +66,22 @@ async def test_get_by_username_or_email_excludes_soft_deleted_users(session: Asy
 async def test_username_is_unique_case_insensitively(session: AsyncSession) -> None:
     await make_user(session, username="Alice")
 
-    with pytest.raises(IntegrityError, match="uq_users_username_active"):
+    with pytest.raises(UsernameTaken):
         await make_user(session, username="alice")
 
 
 async def test_email_is_unique_case_insensitively(session: AsyncSession) -> None:
-    await make_user(session, email="bob@example.test")
+    await make_user(session, email="bob@example.com")
 
-    with pytest.raises(IntegrityError, match="uq_users_email_active"):
-        await make_user(session, email="BOB@example.test")
+    with pytest.raises(EmailTaken):
+        await make_user(session, email="BOB@example.com")
 
 
 async def test_soft_deleting_a_user_frees_the_username(session: AsyncSession) -> None:
-    await make_user(session, username="reused", email="first@example.test")
+    await make_user(session, username="reused", email="first@example.com")
     await soft_delete(session, "reused")
 
-    again = await make_user(session, username="reused", email="second@example.test")
+    again = await make_user(session, username="reused", email="second@example.com")
 
     assert again.username == "reused"
 

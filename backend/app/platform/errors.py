@@ -66,7 +66,7 @@ class ConflictError(DomainError):
     default_message = "The request conflicts with the current state of the resource."
 
 
-class InvariantViolation(DomainError):  # noqa: N818 - name fixed by docs/design/04 §8.3
+class InvariantViolation(DomainError):
     status_code = 409
     default_code = "invariant_violation"
     default_message = "The request would break a rule that must always hold."
@@ -182,6 +182,11 @@ def internal_error_response() -> JSONResponse:
 
 async def _app_error_handler(request: Request, exc: Exception) -> JSONResponse:
     assert isinstance(exc, AppError)  # noqa: S101 - registered for AppError only
+    return app_error_response(exc)
+
+
+def app_error_response(exc: AppError) -> JSONResponse:
+    """The envelope response for an AppError. Module-specific handlers build on it."""
     if exc.status_code >= 500:
         logger.error(
             "Application error",

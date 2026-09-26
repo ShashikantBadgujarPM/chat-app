@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 from alembic import command
 from app.platform.db import constraint_name
 from tests.factories import make_user
-from tests.integration.conftest import DatabaseUnderTest, _libpq_dsn, alembic_config
+from tests.harness import DatabaseUnderTest, _libpq_dsn, alembic_config
 
 # Names other code matches by (docs/design/10 §18). Extended by later milestones.
 EXPECTED_CONSTRAINTS = {"pk_users", "ck_users_status"}
@@ -103,5 +103,10 @@ async def test_engine_connects_as_the_app_role(app_engine: AsyncEngine) -> None:
 async def test_dbapi_errors_expose_constraint_names(session: AsyncSession) -> None:
     await make_user(session, username="dupe")
     with pytest.raises(DBAPIError) as caught:
-        await make_user(session, username="DUPE")
+        await session.execute(
+            text(
+                "INSERT INTO users (username, email, display_name, password_hash) "
+                "VALUES ('DUPE', 'other@example.com', 'D', 'h')"
+            )
+        )
     assert constraint_name(caught.value) == "uq_users_username_active"
