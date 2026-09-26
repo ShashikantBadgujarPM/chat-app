@@ -36,6 +36,7 @@ class Store:
     users: dict[UUID, User] = field(default_factory=dict)
     tokens: dict[UUID, tuple[RefreshToken, str]] = field(default_factory=dict)
     audit: list[str] = field(default_factory=list)
+    events: list[tuple[str, dict[str, Any]]] = field(default_factory=list)
     commits: int = 0
     rollbacks: int = 0
 
@@ -132,6 +133,14 @@ class FakeAudit:
         self.store.audit.append(action)
 
 
+class FakeEvents:
+    def __init__(self, store: Store) -> None:
+        self.store = store
+
+    async def publish(self, event_type: str, **kwargs: Any) -> None:
+        self.store.events.append((event_type, dict(kwargs["payload"])))
+
+
 class FakeUnitOfWork:
     """Stages writes on a copy and applies them to the store only on commit."""
 
@@ -143,10 +152,12 @@ class FakeUnitOfWork:
             users=dict(self._store.users),
             tokens=dict(self._store.tokens),
             audit=list(self._store.audit),
+            events=list(self._store.events),
         )
         self.users = FakeUsers(self._staged)
         self.refresh_tokens = FakeTokens(self._staged)
         self.audit = FakeAudit(self._staged)
+        self.events = FakeEvents(self._staged)
         return self
 
     async def __aexit__(
@@ -158,6 +169,7 @@ class FakeUnitOfWork:
         if exc_type is None:
             self._store.users, self._store.tokens = self._staged.users, self._staged.tokens
             self._store.audit = self._staged.audit
+            self._store.events = self._staged.events
             self._store.commits += 1
         else:
             self._store.rollbacks += 1
@@ -315,4 +327,7 @@ class TestRefresh:
 
         assert all(t.revoked_at is not None for t, _ in store.tokens.values())
         assert "auth.refresh_reuse_detected" in store.audit
+        # The family's sockets are closed too (M09), committed with the revocation.
+        [(event_type, payload)] = [e for e in store.events if e[0] == "session.revoked"]
+        assert len(payload["family_ids"]) == 1
         assert store.rollbacks == 0

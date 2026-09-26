@@ -79,14 +79,18 @@ class RefreshTokenRepository:
 
     async def revoke_all_for_user(
         self, user_id: UUID, *, now: datetime, except_family_id: UUID | None = None
-    ) -> int:
+    ) -> set[UUID]:
+        """Revoke the user's live tokens; return the sessions (families) that ended."""
         conditions = [RefreshTokenModel.user_id == user_id, RefreshTokenModel.revoked_at.is_(None)]
         if except_family_id is not None:
             conditions.append(RefreshTokenModel.family_id != except_family_id)
         result = await self._session.execute(
-            update(RefreshTokenModel).where(*conditions).values(revoked_at=now)
+            update(RefreshTokenModel)
+            .where(*conditions)
+            .values(revoked_at=now)
+            .returning(RefreshTokenModel.family_id)
         )
-        return result.rowcount  # type: ignore[attr-defined, no-any-return]
+        return set(result.scalars())
 
     async def list_active_sessions(self, user_id: UUID, *, now: datetime) -> list[Session]:
         """One entry per family that still has a live (unrevoked, unexpired) token.

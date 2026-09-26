@@ -25,7 +25,11 @@ from app.realtime.envelope import WSEvent
 logger = logging.getLogger(__name__)
 
 SLOW_CONSUMER: Final = 4008
+SESSION_REVOKED: Final = 4001
 CLOSE_TIMEOUT_SECONDS: Final = 2.0
+# Live events held while a connection replays (R-16). Beyond this the client is
+# better served by reconnecting and syncing again.
+SYNC_BUFFER_LIMIT: Final = 5000
 
 
 class _Stop:
@@ -59,6 +63,10 @@ class Connection:
         self.close_requested = False
         self.close_code: int | None = None
         self.sender_task: asyncio.Task[None] | None = None
+        # SYNCING while replaying missed events (08 §14.5): live events wait in
+        # sync_buffer so none are lost between the replay query and going live.
+        self.syncing = False
+        self.sync_buffer: list[tuple[int | None, str]] = []
 
     def enqueue(self, frame: str) -> bool:
         """Queue a frame without waiting. False if the queue is full."""
@@ -171,17 +179,65 @@ class ConnectionManager:
         Returns the number of connections it was queued for. Recipients without a local
         connection are skipped: they catch up through REST state and sync.
         """
-        return self.deliver_frame(event.to_frame(), event.recipient_user_ids)
+        return self.deliver_frame(event.to_frame(), event.recipient_user_ids, event_id=event.id)
 
-    def deliver_frame(self, frame: str, user_ids: Iterable[UUID]) -> int:
+    def deliver_frame(
+        self, frame: str, user_ids: Iterable[UUID], *, event_id: int | None = None
+    ) -> int:
         delivered = 0
         for user_id in user_ids:
             for connection in list(self._by_user.get(user_id, {}).values()):
-                if connection.enqueue(frame):
+                if connection.syncing:
+                    if len(connection.sync_buffer) >= SYNC_BUFFER_LIMIT:
+                        self._close_slow_consumer(connection)
+                        continue
+                    connection.sync_buffer.append((event_id, frame))
+                    delivered += 1
+                elif connection.enqueue(frame):
                     delivered += 1
                 else:
                     self._close_slow_consumer(connection)
         return delivered
+
+    def begin_sync(self, connection: Connection) -> None:
+        connection.syncing = True
+        connection.sync_buffer = []
+
+    def finish_sync(self, connection: Connection, replayed_ids: set[int]) -> None:
+        """After sync.complete was queued: flush buffered live events, skipping any the
+        replay already sent, and go LIVE. No await in between, so nothing can slip in."""
+        buffered, connection.sync_buffer = connection.sync_buffer, []
+        connection.syncing = False
+        for event_id, frame in buffered:
+            if event_id is not None and event_id in replayed_ids:
+                continue
+            if not connection.enqueue(frame):
+                self._close_slow_consumer(connection)
+                return
+
+    def close_sessions(self, user_id: UUID, family_ids: set[UUID] | None) -> int:
+        """Close a user's sockets for the given sessions (None: every session) with
+        4001 session_revoked. Sockets of the user's other sessions stay open."""
+        closing = [
+            c
+            for c in self.connections_for(user_id)
+            if family_ids is None or c.session_family_id in family_ids
+        ]
+        for connection in closing:
+            connection.close_requested = True
+            self._supervisor.spawn(
+                connection.close(SESSION_REVOKED, "session_revoked"),
+                name=f"ws-revoke-{connection.id}",
+            )
+        return len(closing)
+
+    def connected_sessions(self) -> dict[UUID, UUID]:
+        """session_family_id -> user_id, for every live connection."""
+        return {
+            c.session_family_id: c.user_id
+            for conns in self._by_user.values()
+            for c in conns.values()
+        }
 
     def broadcast(self, frame: str) -> int:
         """Queue a frame for every connection (e.g. `sync.required`, M09)."""

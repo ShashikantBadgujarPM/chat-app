@@ -9,6 +9,7 @@ from uuid import UUID
 
 from app.modules.identity.domain.refresh_token import RefreshToken, Session
 from app.modules.identity.domain.user import User
+from app.platform.events import EventPublisher
 
 
 class UserRepositoryPort(Protocol):
@@ -83,7 +84,9 @@ class RefreshTokenRepositoryPort(Protocol):
 
     async def revoke_all_for_user(
         self, user_id: UUID, *, now: datetime, except_family_id: UUID | None = None
-    ) -> int: ...
+    ) -> set[UUID]:
+        """The families (login sessions) that were revoked."""
+        ...
 
     async def list_active_sessions(self, user_id: UUID, *, now: datetime) -> list[Session]: ...
 
@@ -129,6 +132,9 @@ class IdentityUnitOfWork(Protocol):
 
     @property
     def ws_tickets(self) -> WsTicketRepositoryPort: ...
+
+    @property
+    def events(self) -> EventPublisher: ...
 
     async def __aenter__(self) -> Self: ...
 

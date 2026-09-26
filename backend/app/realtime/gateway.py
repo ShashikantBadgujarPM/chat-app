@@ -24,6 +24,7 @@ from app.platform.logging import bind_log_context
 from app.realtime.connection_manager import Connection, ConnectionManager
 from app.realtime.envelope import control
 from app.realtime.publisher import EventOutboxModel
+from app.realtime.sync_service import ResetRequired, SyncService
 
 logger = logging.getLogger(__name__)
 
@@ -133,7 +134,9 @@ async def websocket_endpoint(websocket: WebSocket, ticket: str | None = None) ->
         )
         close_code = NORMAL
         try:
-            close_code = await _receive_loop(connection, settings, app.state.typing)
+            close_code = await _receive_loop(
+                connection, settings, app.state.typing, app.state.sync, manager
+            )
         except Exception:
             logger.exception("WebSocket handler failed", extra={"event": "ws.handler_failed"})
             close_code = INTERNAL_ERROR
@@ -152,7 +155,13 @@ async def websocket_endpoint(websocket: WebSocket, ticket: str | None = None) ->
             )
 
 
-async def _receive_loop(connection: Connection, settings: Settings, typing: TypingService) -> int:
+async def _receive_loop(
+    connection: Connection,
+    settings: Settings,
+    typing: TypingService,
+    sync: SyncService,
+    manager: ConnectionManager,
+) -> int:
     """Read client frames until the socket closes. Returns the close code."""
     invalid_at: deque[float] = deque()
     forbidden_at: deque[float] = deque()
@@ -199,7 +208,9 @@ async def _receive_loop(connection: Connection, settings: Settings, typing: Typi
         elif len(raw.encode("utf-8")) > settings.ws_max_frame_bytes:
             verdict = invalid("frame_too_large", "The frame is larger than 16 KB.")
         else:
-            verdict = await _handle_frame(connection, raw, invalid, forbidden, typing)
+            verdict = await _handle_frame(
+                connection, raw, invalid, forbidden, typing, sync, manager
+            )
         if verdict is not None:
             await connection.close(verdict, "bad_frame")
             return verdict
@@ -208,12 +219,57 @@ async def _receive_loop(connection: Connection, settings: Settings, typing: Typi
 InvalidFrame = Callable[..., int | None]
 
 
+async def _sync(
+    connection: Connection, after: int | None, sync: SyncService, manager: ConnectionManager
+) -> None:
+    """08 §14.5: replay from the overlap window, then flush buffered live events.
+
+    While SYNCING, live events for this connection wait in its buffer (R-16); after
+    sync.complete is queued they are flushed, minus any the replay already sent.
+    """
+    started = time.monotonic()
+    manager.begin_sync(connection)
+    replayed: set[int] = set()
+    try:
+        if after is None:
+            # First connect with nothing cached: the client loads state over REST.
+            pass
+        else:
+            try:
+                async for batch in sync.replay(connection.user_id, after):
+                    replayed.update(e.id for e in batch if e.id is not None)
+                    connection.enqueue(
+                        control("sync.batch", {"events": [json.loads(e.to_frame()) for e in batch]})
+                    )
+            except ResetRequired as reset:
+                connection.enqueue(control("sync.reset_required", {"reason": reset.reason}))
+                logger.info("Sync reset", extra={"event": "ws.sync_reset", "reason": reset.reason})
+                return
+        if sync.before_complete is not None:
+            await sync.before_complete()
+        connection.enqueue(
+            control("sync.complete", {"latest_event_id": await sync.latest_event_id()})
+        )
+    finally:
+        manager.finish_sync(connection, replayed)
+    logger.info(
+        "Sync completed",
+        extra={
+            "event": "ws.sync_completed",
+            "replayed": len(replayed),
+            "duration_ms": round((time.monotonic() - started) * 1000, 1),
+        },
+    )
+
+
 async def _handle_frame(
     connection: Connection,
     raw: str,
     invalid: InvalidFrame,
     forbidden: InvalidFrame,
     typing: TypingService,
+    sync: SyncService,
+    manager: ConnectionManager,
 ) -> int | None:
     try:
         frame = json.loads(raw)
@@ -226,6 +282,13 @@ async def _handle_frame(
 
     if frame_type == "ping":
         connection.enqueue(control("pong", {"server_time": _now_iso()}, ref=ref))
+        return None
+    if frame_type == "sync.request":
+        payload = frame.get("payload") or {}
+        after = payload.get("after_event_id") if isinstance(payload, dict) else None
+        if after is not None and not isinstance(after, int):
+            return invalid("invalid_payload", "after_event_id must be an integer or null.", ref=ref)
+        await _sync(connection, after, sync, manager)
         return None
     if frame_type in ("typing.start", "typing.stop"):
         payload = frame.get("payload")

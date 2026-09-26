@@ -59,7 +59,7 @@ class LiveServer:
             "/api/v1/auth/login",
             json={"username_or_email": body["username"], "password": PASSWORD},
         )
-        return WsUser(self, registered.json()["id"], login.json()["access_token"])
+        return WsUser(self, registered.json()["id"], login.json()["access_token"], body["username"])
 
 
 @dataclass
@@ -67,6 +67,15 @@ class WsUser:
     server: LiveServer
     id: str
     token: str
+    username: str = ""
+
+    async def new_session(self) -> "WsUser":
+        """Log in again: the same user in another browser (a separate session)."""
+        login = await self.server.http.post(
+            "/api/v1/auth/login",
+            json={"username_or_email": self.username, "password": PASSWORD},
+        )
+        return WsUser(self.server, self.id, login.json()["access_token"], self.username)
 
     @property
     def headers(self) -> dict[str, str]:

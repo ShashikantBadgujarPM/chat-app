@@ -38,13 +38,22 @@ from app.platform.middleware import (
 from app.platform.rate_limit import TokenBucketLimiter
 from app.platform.security import Argon2PasswordHasher, JwtTokenIssuer
 from app.platform.tasks import TaskSupervisor
-from app.realtime import gateway
+from app.realtime import gateway, sync_router
 from app.realtime.connection_manager import ConnectionManager
+from app.realtime.envelope import control
 from app.realtime.membership_cache import MembershipCache
 from app.realtime.outbox_listener import OutboxListener, libpq_dsn
 from app.realtime.presence_wiring import wire_presence
+from app.realtime.sessions import revalidation_loop, session_revoked_hook
+from app.realtime.sync_service import SyncService
 
 logger = logging.getLogger(__name__)
+
+
+def broadcast_sync_required(connections: ConnectionManager) -> None:
+    """After the listener reconnects: NOTIFYs sent meanwhile are lost, so every client
+    re-syncs (docs/design/08 §14.4)."""
+    connections.broadcast(control("sync.required", {"reason": "listener_reconnected"}))
 
 
 async def active_members(session_factory: SessionFactory, conversation_id: UUID) -> frozenset[UUID]:
@@ -77,6 +86,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             dsn=libpq_dsn(settings.database_url.get_secret_value()),
             engine=engine,
             manager=connections,
+            # NOTIFYs sent while the listener was down are lost: every client syncs
+            # (08 §14.4), one recovery path instead of a special case.
+            on_reconnect=partial(broadcast_sync_required, connections),
+        )
+        listener.hooks.append(session_revoked_hook(connections))
+        app.state.sync = SyncService(engine)
+        tasks.spawn_supervised(
+            partial(revalidation_loop, engine, connections), name="session-revalidation"
         )
         app.state.outbox_listener = listener
         # Presence and typing (08 §14.7-14.8): transitions from connection counts,
@@ -136,6 +153,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.include_router(health.router)
     app.include_router(gateway.router)
+    app.include_router(sync_router.router)
     app.include_router(identity_routers.router)
     app.include_router(identity_routers.authenticated)
     app.include_router(users_router.router)

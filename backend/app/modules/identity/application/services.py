@@ -99,6 +99,23 @@ class IdentityDependencies:
     refresh_token_ttl: timedelta
 
 
+async def publish_session_revoked(
+    uow: IdentityUnitOfWork, user_id: UUID, family_ids: set[UUID] | None
+) -> None:
+    """Close the sockets of ended sessions (docs/design/06 §11.6). Internal: the
+    connection manager acts on it and doesn't forward it. None means every session."""
+    if family_ids is not None and not family_ids:
+        return
+    await uow.events.publish(
+        "session.revoked",
+        recipient_user_ids=[user_id],
+        payload={
+            "user_id": str(user_id),
+            "family_ids": "*" if family_ids is None else sorted(str(f) for f in family_ids),
+        },
+    )
+
+
 class _UseCase:
     def __init__(self, deps: IdentityDependencies) -> None:
         self._deps = deps
@@ -285,6 +302,7 @@ class RefreshSession(_UseCase):
                 # Another tab refreshed a moment ago (R-6): not theft.
                 return RefreshSuperseded()
             revoked = await uow.refresh_tokens.revoke_family(token.family_id, now=now)
+            await publish_session_revoked(uow, token.user_id, {token.family_id})
             await uow.audit.record(
                 "auth.refresh_reuse_detected",
                 actor_user_id=token.user_id,
@@ -309,6 +327,7 @@ class RefreshSession(_UseCase):
         user = await uow.users.get_by_id(token.user_id)
         if user is None or not user.is_active:
             await uow.refresh_tokens.revoke_family(token.family_id, now=now)
+            await publish_session_revoked(uow, token.user_id, {token.family_id})
             return InvalidRefreshToken()
 
         tokens, new_id = await self._issue_tokens(
@@ -329,6 +348,7 @@ class Logout(_UseCase):
             if token is None or token.revoked_at is not None:
                 return
             await uow.refresh_tokens.revoke_family(token.family_id, now=now)
+            await publish_session_revoked(uow, token.user_id, {token.family_id})
             await uow.audit.record(
                 "auth.logout",
                 actor_user_id=token.user_id,
@@ -344,12 +364,13 @@ class LogoutAll(_UseCase):
         now = self._deps.clock.now()
         async with self._uow() as uow:
             revoked = await uow.refresh_tokens.revoke_all_for_user(user_id, now=now)
+            await publish_session_revoked(uow, user_id, None)
             await uow.audit.record(
                 "auth.logout_all",
                 actor_user_id=user_id,
                 target_type="user",
                 target_id=user_id,
-                metadata={"revoked_count": revoked},
+                metadata={"revoked_count": len(revoked)},
                 ip_address=client.ip_address,
             )
         logger.info(
@@ -376,6 +397,7 @@ class RevokeSession(_UseCase):
             if not await uow.refresh_tokens.has_active_family(user_id, family_id, now=now):
                 raise SessionNotFound()
             await uow.refresh_tokens.revoke_family(family_id, now=now)
+            await publish_session_revoked(uow, user_id, {family_id})
             await uow.audit.record(
                 "auth.session_revoked",
                 actor_user_id=user_id,
@@ -405,12 +427,13 @@ class ChangePassword(_UseCase):
             revoked = await uow.refresh_tokens.revoke_all_for_user(
                 user.id, now=now, except_family_id=current_session_id
             )
+            await publish_session_revoked(uow, user.id, revoked)
             await uow.audit.record(
                 "auth.password_changed",
                 actor_user_id=user.id,
                 target_type="user",
                 target_id=user.id,
-                metadata={"revoked_count": revoked},
+                metadata={"revoked_count": len(revoked)},
                 ip_address=client.ip_address,
             )
 

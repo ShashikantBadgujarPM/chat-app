@@ -8,6 +8,7 @@ from app.modules.identity.application.services import (
     ClientInfo,
     IdentityDependencies,
     known_timezones,
+    publish_session_revoked,
 )
 from app.modules.identity.domain.errors import InvalidCredentials, InvalidTimezone
 from app.modules.identity.domain.user import User
@@ -57,12 +58,13 @@ class ProfileService:
         async with self._deps.uow_factory() as uow:
             await uow.users.soft_delete(user.id, now=now)
             revoked = await uow.refresh_tokens.revoke_all_for_user(user.id, now=now)
+            await publish_session_revoked(uow, user.id, None)
             await uow.audit.record(
                 "auth.account_deleted",
                 actor_user_id=user.id,
                 target_type="user",
                 target_id=user.id,
-                metadata={"revoked_count": revoked},
+                metadata={"revoked_count": len(revoked)},
                 ip_address=client.ip_address,
             )
         logger.info(

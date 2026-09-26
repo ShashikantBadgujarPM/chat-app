@@ -1,6 +1,5 @@
 """Presence and typing over real sockets (M08)."""
 
-
 import psycopg
 import pytest
 

@@ -16,7 +16,6 @@ client to sync.
 import asyncio
 import logging
 from collections.abc import Callable, Sequence
-from uuid import UUID
 
 import asyncpg
 from sqlalchemy import select
@@ -26,6 +25,7 @@ from app.platform.logging import bind_log_context
 from app.realtime.connection_manager import ConnectionManager
 from app.realtime.envelope import WSEvent
 from app.realtime.publisher import EventOutboxModel
+from app.realtime.sync_service import event_from_row
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +34,9 @@ BATCH_WINDOW_SECONDS = 0.02
 BATCH_MAX_IDS = 100
 KEEPALIVE_SECONDS = 15.0
 
-EventHook = Callable[[WSEvent], None]
+# A hook sees every event before fan-out; returning True consumes it (not delivered),
+# e.g. the internal session.revoked.
+EventHook = Callable[[WSEvent], bool | None]
 
 
 def libpq_dsn(sqlalchemy_url: str) -> str:
@@ -129,6 +131,7 @@ class OutboxListener:
 
     async def dispatch(self, ids: Sequence[int]) -> None:
         async with self._engine.connect() as conn:
+            # A Core connection returns Rows with named columns (not ORM instances).
             rows = (
                 await conn.execute(
                     select(EventOutboxModel)
@@ -137,19 +140,14 @@ class OutboxListener:
                 )
             ).all()
         for row in rows:
-            event = WSEvent(
-                id=row.id,
-                type=row.type,
-                conversation_id=row.conversation_id,
-                occurred_at=row.created_at,
-                correlation_id=row.correlation_id,
-                payload=row.payload,
-                recipient_user_ids=tuple(UUID(str(u)) for u in row.recipient_user_ids),
-            )
+            event = event_from_row(row)
             # Fan-out logs link back to the request (or worker job) that caused them.
             with bind_log_context(request_id=event.correlation_id):
+                consumed = False
                 for hook in self.hooks:
-                    hook(event)
+                    consumed = bool(hook(event)) or consumed
+                if consumed:
+                    continue
                 delivered = self._manager.deliver(event)
                 logger.debug(
                     "Event delivered",
