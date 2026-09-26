@@ -1,0 +1,62 @@
+# Base stack (docs/design/12 §22.1). Development additions live in
+# docker-compose.override.yml, which `docker compose` loads automatically.
+#
+# M00 scope: `db` runs with no schema yet. The `migrate` service, database roles and
+# the API's database connection arrive in M01; the `worker` in M11.
+
+name: chat-app
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: chat_owner
+      POSTGRES_PASSWORD: ${POSTGRES_OWNER_PASSWORD:?Set POSTGRES_OWNER_PASSWORD in .env}
+      POSTGRES_DB: chat
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chat_owner -d chat"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build:
+      context: ./backend
+      target: runtime
+      args:
+        APP_VERSION: ${APP_VERSION:-dev}
+    command:
+      - uvicorn
+      - app.main:app
+      - --host=0.0.0.0
+      - --port=8000
+      - --workers=1  # deliberate, see ADR-002
+      - --ws-ping-interval=20
+      - --ws-ping-timeout=20
+      - --proxy-headers
+      - --forwarded-allow-ips=${TRUSTED_PROXIES:-127.0.0.1}
+    environment:
+      ENV: ${ENV:-production}
+      DEBUG: ${DEBUG:-false}
+      APP_VERSION: ${APP_VERSION:-dev}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:5173}
+    healthcheck:
+      # The slim image has no curl; urlopen raises (exit 1) on any non-2xx.
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=3)"
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+volumes:
+  pgdata:

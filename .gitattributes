@@ -1,0 +1,4 @@
+# Shell scripts and Dockerfiles run inside Linux containers; keep LF even on Windows.
+* text=auto
+*.sh text eol=lf
+Dockerfile text eol=lf
