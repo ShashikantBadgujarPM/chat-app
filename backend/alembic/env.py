@@ -19,6 +19,7 @@ import app.modules.identity.infrastructure.models
 import app.platform.audit
 import app.realtime.publisher  # noqa: F401
 from alembic import context
+from app.config import load_local_env
 from app.platform.models_base import Base
 
 config = context.config
@@ -33,6 +34,7 @@ def _database_url() -> str:
     url = config.get_main_option("sqlalchemy.url")
     if url:
         return url
+    load_local_env()  # native runs: backend/.env.local
     url = os.environ.get("DATABASE_OWNER_URL")
     if not url:
         raise RuntimeError(

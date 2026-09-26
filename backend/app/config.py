@@ -5,10 +5,12 @@ start rather than run insecurely (see docs/design/10 §20 "Secure configuration"
 docs/design/12 §22.4).
 """
 
+import os
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Any, Literal, Self
 
+from dotenv import load_dotenv
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
@@ -20,7 +22,8 @@ MIN_SECRET_BYTES = 32
 
 
 class Settings(BaseSettings):
-    # Environment variables only; `.env` is loaded by Docker Compose, not by the app.
+    # Environment variables only. Docker Compose injects them; a native run can put them
+    # in backend/.env.local (see load_local_env below).
     model_config = SettingsConfigDict(extra="ignore", frozen=True)
 
     # Defaulting to production means a forgotten ENV gets the strictest checks.
@@ -146,6 +149,22 @@ def _require_secret_length(name: str, secret: SecretStr) -> None:
         raise ValueError(f"{name} must be at least {MIN_SECRET_BYTES} bytes")
 
 
+DEFAULT_LOCAL_ENV_FILE = ".env.local"
+
+
+def load_local_env() -> None:
+    """For running natively (no Docker): load `backend/.env.local` if it exists.
+
+    Real environment variables always win (override=False). Docker never has the file
+    (.dockerignore excludes .env.*). Set ENV_FILE to use another file, or to an empty
+    string to disable it, as the test suite does.
+    """
+    path = os.environ.get("ENV_FILE", DEFAULT_LOCAL_ENV_FILE)
+    if path:
+        load_dotenv(path, override=False)
+
+
 @lru_cache
 def get_settings() -> Settings:
+    load_local_env()
     return Settings()

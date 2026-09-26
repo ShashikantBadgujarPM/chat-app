@@ -7,6 +7,8 @@ from fastapi import FastAPI
 
 # `app.main` builds its module-level app at import time, which reads the environment.
 # Give it safe test values before anything imports it. Real values always win.
+# A developer's backend/.env.local must never leak into tests.
+os.environ["ENV_FILE"] = ""
 os.environ.setdefault("ENV", "test")
 os.environ.setdefault("JWT_SECRET", "test-only-jwt-secret-not-for-real-use-000000")
 os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://unused:unused@127.0.0.1:1/unused")
