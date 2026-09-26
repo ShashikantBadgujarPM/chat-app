@@ -1,8 +1,10 @@
 # Base stack (docs/design/12 §22.1). Development additions live in
 # docker-compose.override.yml, which `docker compose` loads automatically.
 #
-# M00 scope: `db` runs with no schema yet. The `migrate` service, database roles and
-# the API's database connection arrive in M01; the `worker` in M11.
+# `migrate` applies the schema as the owner role, then exits; `api` starts only after
+# it succeeds. The `worker` arrives in M11.
+#
+# Passwords are interpolated into database URLs, so keep them URL-safe.
 
 name: chat-app
 
@@ -13,13 +15,31 @@ services:
       POSTGRES_USER: chat_owner
       POSTGRES_PASSWORD: ${POSTGRES_OWNER_PASSWORD:?Set POSTGRES_OWNER_PASSWORD in .env}
       POSTGRES_DB: chat
+      # Read by db/init/01-roles.sh, which runs only when the data volume is empty.
+      CHAT_APP_PASSWORD: ${CHAT_APP_PASSWORD:?Set CHAT_APP_PASSWORD in .env}
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U chat_owner -d chat"]
       interval: 5s
       timeout: 3s
       retries: 10
+
+  migrate:
+    build:
+      context: ./backend
+      target: runtime
+      args:
+        APP_VERSION: ${APP_VERSION:-dev}
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+    environment:
+      # The only service that receives the owner credential.
+      DATABASE_OWNER_URL: postgresql+psycopg://chat_owner:${POSTGRES_OWNER_PASSWORD}@db:5432/chat
+    depends_on:
+      db:
+        condition: service_healthy
 
   api:
     build:
@@ -27,6 +47,9 @@ services:
       target: runtime
       args:
         APP_VERSION: ${APP_VERSION:-dev}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
     command:
       - uvicorn
       - app.main:app
@@ -46,6 +69,9 @@ services:
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
       COOKIE_SECURE: ${COOKIE_SECURE:-true}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:5173}
+      DATABASE_URL: postgresql+asyncpg://chat_app:${CHAT_APP_PASSWORD}@db:5432/chat
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-10}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-5}
     healthcheck:
       # The slim image has no curl; urlopen raises (exit 1) on any non-2xx.
       test:

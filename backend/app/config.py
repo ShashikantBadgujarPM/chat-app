@@ -44,12 +44,25 @@ class Settings(BaseSettings):
 
     max_request_body_bytes: int = Field(default=64 * 1024, gt=0)
 
+    # The application role (DML only). The owner URL is read by Alembic alone, from
+    # DATABASE_OWNER_URL, so the API process never holds that credential.
+    database_url: SecretStr
+    db_pool_size: int = Field(default=10, ge=1)
+    db_max_overflow: int = Field(default=5, ge=0)
+
     @field_validator("allowed_origins", mode="before")
     @classmethod
     def _split_origins(cls, value: Any) -> Any:
         # ALLOWED_ORIGINS is a comma-separated list, e.g. "https://a.example,https://b.example".
         if isinstance(value, str):
             return [origin.strip() for origin in value.split(",") if origin.strip()]
+        return value
+
+    @field_validator("database_url")
+    @classmethod
+    def _require_asyncpg(cls, value: SecretStr) -> SecretStr:
+        if not value.get_secret_value().startswith("postgresql+asyncpg://"):
+            raise ValueError("DATABASE_URL must use the postgresql+asyncpg:// driver")
         return value
 
     @model_validator(mode="after")
@@ -94,6 +107,8 @@ class Settings(BaseSettings):
             "cookie_secure": self.cookie_secure,
             "allowed_origins": self.allowed_origins,
             "max_request_body_bytes": self.max_request_body_bytes,
+            "db_pool_size": self.db_pool_size,
+            "db_max_overflow": self.db_max_overflow,
         }
 
 

@@ -35,3 +35,18 @@ The implementation agent records spec ambiguities here ([15 §26.3](../design/15
 - **Question:** `pg_trgm` has no operator class for `citext`, so 05's `GIN (username gin_trgm_ops)` fails.
 - **Resolution:** use the expression index `GIN ((username::text) gin_trgm_ops)`, and make search query exactly `username::text`.
 - **Updated:** [05 §users](../design/05-database.md), M03.
+
+## Found while implementing M01 (2026-09-26)
+
+### Q-007 Reading constraint names from the driver
+- **Question:** 10 §18 said to match on `e.orig.diag.constraint_name`, which is psycopg's API. The app uses asyncpg, whose exception carries `constraint_name` directly.
+- **Resolution:** a single helper, `app.platform.db.constraint_name(exc)`, handles both drivers. All code that matches expected violations uses it.
+- **Updated:** [10 §18](../design/10-errors-logging-security.md).
+
+### Q-008 Alembic's async psycopg driver on Windows
+- **Question:** async psycopg can't run on Windows' default `ProactorEventLoop`, so `alembic upgrade` failed when run on a Windows host.
+- **Resolution:** `alembic/env.py` passes `loop_factory=asyncio.SelectorEventLoop` to `asyncio.run` on Windows only. The API (asyncpg) and the Linux containers are unaffected. This is an implementation detail with no design change.
+
+### Q-009 Test server sharing under xdist
+- **Question:** 11 §21.3 says "start one Postgres container" with a database per xdist worker. Each xdist worker is a separate process, so sharing one container would need cross-process coordination.
+- **Resolution (implementation):** without `TEST_DATABASE_ADMIN_URL`, each xdist worker starts its own testcontainer. With it, all workers share that server. Migrations are serialized with an advisory lock taken in the `postgres` database, because concurrent `ALTER ROLE` statements from several workers raised "tuple concurrently updated". Migration 0001 also skips `ALTER ROLE` when the setting already exists. Revisit if CI container start-up time becomes a problem.

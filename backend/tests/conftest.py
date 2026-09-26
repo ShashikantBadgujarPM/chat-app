@@ -9,11 +9,15 @@ from fastapi import FastAPI
 # Give it safe test values before anything imports it. Real values always win.
 os.environ.setdefault("ENV", "test")
 os.environ.setdefault("JWT_SECRET", "test-only-jwt-secret-not-for-real-use-000000")
+os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://unused:unused@127.0.0.1:1/unused")
 
 from app.config import Settings  # after the environment defaults above
 from app.main import create_app
 
 TEST_JWT_SECRET = "test-only-jwt-secret-not-for-real-use-000000"
+# Nothing listens on port 1, so API tests without the integration harness see the
+# database as unavailable: connection refused, fast.
+UNREACHABLE_DATABASE_URL = "postgresql+asyncpg://unused:unused@127.0.0.1:1/unused"
 
 SettingsFactory = Callable[..., Settings]
 
@@ -34,6 +38,7 @@ def make_settings() -> SettingsFactory:
         values: dict[str, object] = {
             "env": "test",
             "jwt_secret": TEST_JWT_SECRET,
+            "database_url": UNREACHABLE_DATABASE_URL,
             "log_format": "json",
         }
         values.update(overrides)

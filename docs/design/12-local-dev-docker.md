@@ -64,7 +64,7 @@ Role creation and privileges are split by scope, because Postgres init scripts r
 
 **Database level: the first Alembic migration** (`0001`). It runs as `chat_owner` in every migrated database, including each test database, and:
 - enables `pgcrypto`, `citext` and `pg_trgm` (this needs owner or superuser rights, another reason migrations run as `chat_owner`);
-- grants `chat_app` `CONNECT` on the current database, `USAGE` on schema `public`, `SELECT/INSERT/UPDATE/DELETE` on tables and `USAGE` on sequences, and sets `ALTER DEFAULT PRIVILEGES FOR ROLE chat_owner` so tables created by later migrations are covered too. There is **no** DDL for `chat_app`, and the `audit_logs` migration later revokes `UPDATE/DELETE` on that table;
+- grants `chat_app` `CONNECT` on the current database, `USAGE` on schema `public`, `SELECT/INSERT/UPDATE/DELETE` on tables and `USAGE` on sequences, and sets `ALTER DEFAULT PRIVILEGES` for the role running the migrations (the owner) so tables created by later migrations are covered too. There is **no** DDL for `chat_app`, and the `audit_logs` migration later revokes `UPDATE/DELETE` on that table;
 - sets `ALTER ROLE chat_app SET idle_in_transaction_session_timeout = '10s'` (needed by the outbox replay reasoning in [08](08-websocket.md) §14.5). This is a role-level setting, so it is idempotent; it needs superuser or `CREATEROLE`, which `chat_owner` has locally and in the test containers. A managed production database may need it applied by an administrator instead.
 
 The migration requires the `chat_app` role to exist already. The init script creates it for the compose database, and the test harness creates it for its server ([11 §21.3](11-testing.md)).

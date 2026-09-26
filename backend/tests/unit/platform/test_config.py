@@ -4,12 +4,12 @@ import pytest
 from pydantic import ValidationError
 
 from app.config import Settings
-from tests.conftest import TEST_JWT_SECRET, SettingsFactory
+from tests.conftest import TEST_JWT_SECRET, UNREACHABLE_DATABASE_URL, SettingsFactory
 
 
 def test_missing_jwt_secret_is_rejected() -> None:
     with pytest.raises(ValidationError, match="JWT_SECRET"):
-        Settings(env="test")
+        Settings(env="test", database_url=UNREACHABLE_DATABASE_URL)
 
 
 def test_short_jwt_secret_is_rejected(make_settings: SettingsFactory) -> None:
@@ -26,7 +26,9 @@ def test_jwt_secret_can_come_from_a_file(tmp_path: Path) -> None:
     secret_file = tmp_path / "jwt_secret"
     secret_file.write_text(f"{TEST_JWT_SECRET}\n", encoding="utf-8")
 
-    settings = Settings(env="test", jwt_secret_file=secret_file)
+    settings = Settings(
+        env="test", jwt_secret_file=secret_file, database_url=UNREACHABLE_DATABASE_URL
+    )
 
     assert settings.jwt_secret is not None
     assert settings.jwt_secret.get_secret_value() == TEST_JWT_SECRET
@@ -37,14 +39,39 @@ def test_jwt_secret_and_file_together_are_rejected(tmp_path: Path) -> None:
     secret_file.write_text(TEST_JWT_SECRET, encoding="utf-8")
 
     with pytest.raises(ValidationError, match="only one"):
-        Settings(env="test", jwt_secret=TEST_JWT_SECRET, jwt_secret_file=secret_file)
+        Settings(
+            env="test",
+            jwt_secret=TEST_JWT_SECRET,
+            jwt_secret_file=secret_file,
+            database_url=UNREACHABLE_DATABASE_URL,
+        )
 
 
-def test_secret_is_not_shown_in_repr(make_settings: SettingsFactory) -> None:
-    settings = make_settings()
+def test_secrets_are_not_shown_in_repr_or_summary(make_settings: SettingsFactory) -> None:
+    database_url = "postgresql+asyncpg://chat_app:db-password-123@db:5432/chat"
+    settings = make_settings(database_url=database_url)
 
-    assert TEST_JWT_SECRET not in repr(settings)
-    assert TEST_JWT_SECRET not in str(settings.safe_summary())
+    for text in (repr(settings), str(settings.safe_summary())):
+        assert TEST_JWT_SECRET not in text
+        assert "db-password-123" not in text
+
+
+def test_missing_database_url_is_rejected() -> None:
+    with pytest.raises(ValidationError, match="database_url"):
+        Settings(env="test", jwt_secret=TEST_JWT_SECRET)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "postgresql://chat_app:pw@db:5432/chat",
+        "postgresql+psycopg://chat_app:pw@db:5432/chat",
+        "sqlite+aiosqlite:///chat.db",
+    ],
+)
+def test_database_url_must_use_asyncpg(make_settings: SettingsFactory, url: str) -> None:
+    with pytest.raises(ValidationError, match="asyncpg"):
+        make_settings(database_url=url)
 
 
 @pytest.mark.parametrize(
@@ -70,7 +97,7 @@ def test_insecure_cookie_is_allowed_only_in_development(make_settings: SettingsF
 
 
 def test_env_defaults_to_production() -> None:
-    settings = Settings(jwt_secret=TEST_JWT_SECRET)
+    settings = Settings(jwt_secret=TEST_JWT_SECRET, database_url=UNREACHABLE_DATABASE_URL)
 
     assert settings.env == "production"
 
@@ -79,6 +106,7 @@ def test_allowed_origins_are_read_as_a_comma_separated_list(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("JWT_SECRET", TEST_JWT_SECRET)
+    monkeypatch.setenv("DATABASE_URL", UNREACHABLE_DATABASE_URL)
     monkeypatch.setenv("ALLOWED_ORIGINS", "https://a.example, https://b.example")
 
     assert Settings().allowed_origins == ["https://a.example", "https://b.example"]

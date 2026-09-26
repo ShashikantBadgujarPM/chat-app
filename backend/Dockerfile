@@ -22,6 +22,8 @@ FROM builder AS dev
 RUN uv sync --frozen
 RUN groupadd --system app && useradd --system --gid app --create-home app
 COPY app ./app
+COPY alembic ./alembic
+COPY alembic.ini ./
 COPY tests ./tests
 # /app is read-only for the non-root user, so skip pytest's cache directory.
 ENV PATH=/opt/venv/bin:$PATH \
@@ -39,6 +41,8 @@ RUN groupadd --system app && useradd --system --gid app --no-create-home app
 WORKDIR /app
 COPY --from=builder /opt/venv /opt/venv
 COPY app ./app
+COPY alembic ./alembic
+COPY alembic.ini ./
 USER app
 EXPOSE 8000
 # --workers 1 is deliberate: WebSocket state lives in the process (ADR-002).

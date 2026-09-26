@@ -73,3 +73,6 @@ pythonpath = ["."]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 addopts = "-ra --strict-markers"
+markers = [
+    "real_commits: the test really commits; tables are truncated afterwards (docs/design/11 §21.3)",
+]

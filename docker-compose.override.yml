@@ -6,6 +6,11 @@ services:
     ports:
       - "5432:5432"
 
+  migrate:
+    volumes:
+      # So `docker compose run --rm migrate alembic revision ...` writes to the host.
+      - ./backend/alembic:/app/alembic
+
   api:
     build:
       target: dev

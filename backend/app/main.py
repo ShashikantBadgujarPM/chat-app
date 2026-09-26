@@ -7,11 +7,13 @@ their own `Settings`.
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from functools import partial
 
 from fastapi import FastAPI
 
 from app.config import Settings, get_settings
 from app.platform import debug, health
+from app.platform.db import check_database, create_engine, create_session_factory
 from app.platform.errors import UnhandledExceptionMiddleware, register_exception_handlers
 from app.platform.logging import configure_logging
 from app.platform.middleware import (
@@ -29,8 +31,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        # Resources that live for the whole process (DB engine in M01, outbox
-        # listener in M06) are created here and released in the `finally` block.
+        # Process-wide resources are created here and released in `finally`.
+        # Creating the engine doesn't connect, so startup succeeds with the DB down:
+        # /health/live stays 200 and /health/ready reports 503 until it's reachable.
+        engine = create_engine(settings)
+        app.state.engine = engine
+        app.state.session_factory = create_session_factory(engine)
+        health.register_readiness_check(app, "database", partial(check_database, engine))
         logger.info(
             "Application started",
             extra={"event": "app.startup", "config": settings.safe_summary()},
@@ -38,6 +45,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             yield
         finally:
+            await engine.dispose()
+            logger.info("Database engine disposed", extra={"event": "db.engine_disposed"})
             logger.info("Application stopped", extra={"event": "app.shutdown"})
 
     is_production = settings.env == "production"

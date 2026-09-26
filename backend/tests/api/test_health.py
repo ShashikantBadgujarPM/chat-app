@@ -14,23 +14,26 @@ async def test_live_returns_ok(client: httpx.AsyncClient) -> None:
     assert response.json() == {"status": "ok"}
 
 
-async def test_ready_returns_200_with_no_checks_registered(client: httpx.AsyncClient) -> None:
+async def test_ready_returns_503_when_the_database_is_unreachable(
+    client: httpx.AsyncClient,
+) -> None:
+    # The 200 case needs a real database: tests/integration/test_health_ready.py.
     response = await client.get("/health/ready")
 
-    assert response.status_code == 200
-    assert response.json() == {"status": "ready", "checks": {}}
+    assert response.status_code == 503
+    assert response.json()["error"]["details"] == {"checks": {"database": "unavailable"}}
 
 
 @pytest.fixture
 def app_with_failing_check(app: FastAPI) -> FastAPI:
     async def failing_check() -> None:
-        raise ConnectionError("db down: host=10.0.0.5")
+        raise ConnectionError("dependency down: host=10.0.0.5")
 
     async def passing_check() -> None:
         return None
 
-    register_readiness_check(app, "database", failing_check)
-    register_readiness_check(app, "cache", passing_check)
+    register_readiness_check(app, "failing", failing_check)
+    register_readiness_check(app, "passing", passing_check)
     return app
 
 
@@ -42,7 +45,9 @@ async def test_ready_returns_503_when_a_check_fails(
     assert response.status_code == 503
     error = response.json()["error"]
     assert error["code"] == "not_ready"
-    assert error["details"] == {"checks": {"database": "unavailable", "cache": "ok"}}
+    checks = error["details"]["checks"]
+    assert checks["failing"] == "unavailable"
+    assert checks["passing"] == "ok"
     assert error["request_id"] == response.headers["X-Request-ID"]
     # The failure reason is logged, not returned.
     assert "10.0.0.5" not in response.text
