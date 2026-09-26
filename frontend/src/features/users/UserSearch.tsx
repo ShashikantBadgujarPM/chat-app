@@ -61,6 +61,8 @@ export function UserSearch({ label, onSelect, excludeIds }: Props) {
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    // Enter in the search box picks a user; it must never submit a surrounding form.
+    if (event.key === 'Enter') event.preventDefault()
     if (!showList || results.length === 0) return
     if (event.key === 'ArrowDown') {
       event.preventDefault()
@@ -69,7 +71,6 @@ export function UserSearch({ label, onSelect, excludeIds }: Props) {
       event.preventDefault()
       setActive((i) => (i <= 0 ? results.length - 1 : i - 1))
     } else if (event.key === 'Enter' && active >= 0) {
-      event.preventDefault()
       choose(results[active])
     } else if (event.key === 'Escape') {
       setOpen(false)

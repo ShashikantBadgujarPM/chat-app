@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { ApiError } from '../../api/client'
@@ -131,10 +131,12 @@ export function ConversationsLayout() {
 
 function Dialog({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   const ref = useRef<HTMLDialogElement>(null)
+  // No close() on cleanup: under StrictMode the effect runs twice, and the queued
+  // "close" event from the first cleanup would call onClose and unmount the dialog.
+  // Unmounting removes the element, which ends the modal state anyway.
   useEffect(() => {
     const dialog = ref.current
-    dialog?.showModal()
-    return () => dialog?.close()
+    if (dialog && !dialog.open) dialog.showModal()
   }, [])
   return (
     <dialog ref={ref} onClose={onClose} aria-label={title}>
@@ -151,7 +153,8 @@ function NewGroupForm({ onCreated }: { onCreated: (id: string) => void }) {
   const [title, setTitle] = useState('')
   const [members, setMembers] = useState<UserPublic[]>([])
   const [error, setError] = useState<string | null>(null)
-  const chosen = new Set(members.map((member) => member.id))
+  // Stable identity: UserSearch re-runs its search whenever excludeIds changes.
+  const chosen = useMemo(() => new Set(members.map((member) => member.id)), [members])
 
   async function submit(event: FormEvent) {
     event.preventDefault()
