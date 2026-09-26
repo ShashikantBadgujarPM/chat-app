@@ -4,6 +4,7 @@ import { ApiError, api } from '../../api/client'
 import { chatSocket } from '../../ws/ChatSocket'
 import { messagesApi } from './api'
 import type { Message } from './api'
+import { typingText } from '../presence/presence'
 import { CursorSender } from './readCursor'
 import { markDeleted, upsertMessage } from './reducer'
 import type { MessageState, Pending } from './reducer'
@@ -11,6 +12,8 @@ import type { MessageState, Pending } from './reducer'
 type Props = {
   conversationId: string
   myId: string
+  /** Display names of the members, for the typing line. */
+  memberNames: Record<string, string>
   myLastReadSeq: number
   /** In a DM, how far the other member has read (for "Seen"); null elsewhere. */
   otherReadSeq: number | null
@@ -18,7 +21,46 @@ type Props = {
 }
 
 /** Message history, live updates (M06) and the composer. */
-export function MessagePane({ conversationId, myId, myLastReadSeq, otherReadSeq, onSent }: Props) {
+export function MessagePane({
+  conversationId,
+  myId,
+  memberNames,
+  myLastReadSeq,
+  otherReadSeq,
+  onSent,
+}: Props) {
+  // Who is typing, with when their indicator expires (receivers expire it themselves).
+  const [typing, setTyping] = useState<Record<string, number>>({})
+  useEffect(
+    () =>
+      chatSocket.subscribe((event) => {
+        if (event.type !== 'typing.updated' || event.conversation_id !== conversationId) return
+        const t = event.payload as { user_id: string; is_typing: boolean; expires_in_s: number }
+        setTyping((current) => {
+          const next = { ...current }
+          if (t.is_typing) next[t.user_id] = Date.now() + t.expires_in_s * 1000
+          else delete next[t.user_id]
+          return next
+        })
+      }),
+    [conversationId],
+  )
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setTyping((current) => {
+        const now = Date.now()
+        const live = Object.fromEntries(Object.entries(current).filter(([, until]) => until > now))
+        return Object.keys(live).length === Object.keys(current).length ? current : live
+      })
+    }, 1000)
+    return () => clearInterval(timer)
+  }, [])
+  const typingLine = typingText(
+    Object.keys(typing)
+      .filter((id) => id !== myId)
+      .map((id) => memberNames[id] ?? 'Someone'),
+  )
+
   const [state, setState] = useState<MessageState>({ messages: [], pending: [] })
   const [hasMore, setHasMore] = useState(false)
   const [loadingOlder, setLoadingOlder] = useState(false)
@@ -240,8 +282,16 @@ export function MessagePane({ conversationId, myId, myLastReadSeq, otherReadSeq,
           </li>
         ))}
       </ol>
+      <p className="typing-line" aria-live="polite">
+        {typingLine ?? '\u00a0'}
+      </p>
       {error && <p role="alert">{error}</p>}
-      <Composer replyTo={replyTo} onCancelReply={() => setReplyTo(null)} onSubmit={submit} />
+      <Composer
+        conversationId={conversationId}
+        replyTo={replyTo}
+        onCancelReply={() => setReplyTo(null)}
+        onSubmit={submit}
+      />
     </div>
   )
 }
@@ -303,16 +353,42 @@ function MessageItem({
   )
 }
 
+const TYPING_REPEAT_MS = 3000
+
 function Composer({
+  conversationId,
   replyTo,
   onCancelReply,
   onSubmit,
 }: {
+  conversationId: string
   replyTo: Message | null
   onCancelReply: () => void
   onSubmit: (body: string) => void
 }) {
   const [body, setBody] = useState('')
+  const lastTypingSent = useRef(0)
+
+  // typing.start at most every 3 s while typing; typing.stop on send, blur or empty.
+  function typingStart() {
+    const now = Date.now()
+    if (now - lastTypingSent.current < TYPING_REPEAT_MS) return
+    if (chatSocket.send({ type: 'typing.start', payload: { conversation_id: conversationId } })) {
+      lastTypingSent.current = now
+    }
+  }
+
+  function typingStop() {
+    if (lastTypingSent.current === 0) return
+    lastTypingSent.current = 0
+    chatSocket.send({ type: 'typing.stop', payload: { conversation_id: conversationId } })
+  }
+
+  function change(value: string) {
+    setBody(value)
+    if (value.trim()) typingStart()
+    else typingStop()
+  }
 
   function send(event?: FormEvent) {
     event?.preventDefault()
@@ -320,6 +396,7 @@ function Composer({
     if (!text) return
     onSubmit(text)
     setBody('')
+    typingStop()
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
@@ -346,7 +423,8 @@ function Composer({
       <textarea
         id="composer-input"
         value={body}
-        onChange={(e) => setBody(e.target.value)}
+        onChange={(e) => change(e.target.value)}
+        onBlur={typingStop}
         onKeyDown={onKeyDown}
         maxLength={4000}
         rows={2}

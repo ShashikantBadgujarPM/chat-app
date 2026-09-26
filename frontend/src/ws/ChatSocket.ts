@@ -43,6 +43,19 @@ export class ChatSocket {
   /** The highest durable event id applied; M09 resumes from it. */
   lastEventId: number | null = null
   status: SocketStatus = 'offline'
+  /** server clock - client clock, from hello.server_time (for "last seen" times). */
+  private serverOffsetMs = 0
+
+  serverNow(): number {
+    return Date.now() + this.serverOffsetMs
+  }
+
+  /** Send a client frame (ping, typing.*, sync.request) if connected. */
+  send(frame: Record<string, unknown>): boolean {
+    if (this.ws?.readyState !== WebSocket.OPEN) return false
+    this.ws.send(JSON.stringify(frame))
+    return true
+  }
 
   onSessionEnded: () => void = () => {}
 
@@ -115,6 +128,8 @@ export class ChatSocket {
       return
     }
     if (frame.type === 'hello') {
+      const serverTime = Date.parse(String((frame.payload as { server_time?: string }).server_time))
+      if (!Number.isNaN(serverTime)) this.serverOffsetMs = serverTime - Date.now()
       this.setStatus('online')
       const interval = Number((frame.payload as { heartbeat_interval_s?: number }).heartbeat_interval_s ?? 25)
       this.startHeartbeat(interval * 1000)

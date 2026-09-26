@@ -8,18 +8,26 @@ import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from functools import partial
+from uuid import UUID
 
 from fastapi import FastAPI
 
 from app.config import Settings, get_settings
 from app.modules.conversations.api import router as conversations_router
+from app.modules.conversations.infrastructure.repository import ConversationRepository
 from app.modules.identity.api import routers as identity_routers
 from app.modules.identity.api import users_router
 from app.modules.identity.api.deps import register_identity_exception_handlers
 from app.modules.messaging.api import routers as messaging_routers
 from app.platform import debug, health
 from app.platform.clock import SystemClock
-from app.platform.db import check_database, create_engine, create_session_factory
+from app.platform.db import (
+    SessionFactory,
+    UnitOfWork,
+    check_database,
+    create_engine,
+    create_session_factory,
+)
 from app.platform.errors import UnhandledExceptionMiddleware, register_exception_handlers
 from app.platform.logging import configure_logging
 from app.platform.middleware import (
@@ -32,9 +40,17 @@ from app.platform.security import Argon2PasswordHasher, JwtTokenIssuer
 from app.platform.tasks import TaskSupervisor
 from app.realtime import gateway
 from app.realtime.connection_manager import ConnectionManager
+from app.realtime.membership_cache import MembershipCache
 from app.realtime.outbox_listener import OutboxListener, libpq_dsn
+from app.realtime.presence_wiring import wire_presence
 
 logger = logging.getLogger(__name__)
+
+
+async def active_members(session_factory: SessionFactory, conversation_id: UUID) -> frozenset[UUID]:
+    async with UnitOfWork(session_factory) as uow:
+        ids = await ConversationRepository(uow.session).active_member_ids(conversation_id)
+    return frozenset(ids)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -63,6 +79,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             manager=connections,
         )
         app.state.outbox_listener = listener
+        # Presence and typing (08 §14.7-14.8): transitions from connection counts,
+        # typing checked against a membership cache the listener keeps fresh.
+        membership = MembershipCache(partial(active_members, app.state.session_factory))
+        app.state.membership_cache = membership
+        listener.hooks.append(membership.on_event)
+        wire_presence(
+            app, settings=settings, tasks=tasks, connections=connections, listener=listener
+        )
         tasks.spawn_supervised(listener.run, name="outbox-listener")
         health.register_readiness_check(app, "outbox_listener", listener.check_ready)
         logger.info(

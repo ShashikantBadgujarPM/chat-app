@@ -62,6 +62,10 @@ class Settings(BaseSettings):
     ws_heartbeat_interval_seconds: int = Field(default=25, gt=0)
     ws_shutdown_drain_seconds: float = Field(default=5.0, ge=0)
 
+    # Presence (docs/design/08 §14.7): how long a user may be disconnected before
+    # others see them go offline. Absorbs reloads and short network blips.
+    presence_grace_seconds: float = Field(default=10.0, ge=0)
+
     cookie_secure: bool = True
     allowed_origins: Annotated[list[str], NoDecode] = Field(
         default_factory=lambda: ["http://localhost:5173"]

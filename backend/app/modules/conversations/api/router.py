@@ -27,6 +27,7 @@ from app.modules.messaging.application.read_state_service import (
     receipts_enabled,
 )
 from app.modules.messaging.infrastructure.unit_of_work import SqlMessagingUnitOfWork
+from app.modules.presence.api.deps import presence_for
 from app.platform.pagination import Page
 
 router = APIRouter(
@@ -42,14 +43,18 @@ router = APIRouter(
 
 @router.get("")
 async def list_conversations(
+    request: Request,
     current: Authenticated,
     service: Conversations,
     limit: Annotated[int, Query(ge=1, le=100)] = 30,
     cursor: Annotated[str | None, Query(max_length=512)] = None,
 ) -> Page[ConversationSummaryOut]:
     page = await service.list_for_user(caller_id=current.user.id, limit=limit, cursor=cursor)
+    presence = await presence_for(
+        request, [m.user_id for v in page.items for m in v.members_preview]
+    )
     return Page(
-        items=[ConversationSummaryOut.from_view(v) for v in page.items],
+        items=[ConversationSummaryOut.from_view(v, presence) for v in page.items],
         next_cursor=page.next_cursor,
     )
 
@@ -77,10 +82,11 @@ async def create_group(
 
 @router.get("/{conversation_id}")
 async def get_conversation(
-    conversation_id: UUID, member: ActiveMember, service: Conversations
+    conversation_id: UUID, request: Request, member: ActiveMember, service: Conversations
 ) -> ConversationOut:
     view = await service.get(caller_id=member.user_id, conversation_id=conversation_id)
-    return ConversationOut.from_view(view)
+    presence = await presence_for(request, [m.user_id for m in view.members_preview])
+    return ConversationOut.from_view(view, presence)
 
 
 @router.patch("/{conversation_id}")
@@ -95,12 +101,15 @@ async def rename_conversation(
 
 @router.get("/{conversation_id}/members")
 async def list_members(
-    conversation_id: UUID, member: ActiveMember, service: Conversations
+    conversation_id: UUID, request: Request, member: ActiveMember, service: Conversations
 ) -> MembersResponse:
     view = await service.get(caller_id=member.user_id, conversation_id=conversation_id)
     members = await service.list_members(caller_id=member.user_id, conversation_id=conversation_id)
     receipts = receipts_enabled(view.conversation.type, view.member_count)
-    return MembersResponse(items=[MemberOut.from_profile(m, receipts=receipts) for m in members])
+    presence = await presence_for(request, [m.user_id for m in members])
+    return MembersResponse(
+        items=[MemberOut.from_profile(m, receipts=receipts, presence=presence) for m in members]
+    )
 
 
 @router.put("/{conversation_id}/read-cursor")

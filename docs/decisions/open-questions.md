@@ -97,3 +97,11 @@ The implementation agent records spec ambiguities here ([15 §26.3](../design/15
 - **Resolution:** `Member` gains an optional `last_read_seq`, filled only where read receipts apply (direct conversations and groups under 20 members) and `null` otherwise, so the receipt privacy boundary is unchanged. This is an additive field, which 07 §13.1 allows without a version bump.
 - **Also recorded:** the unread count uses `sender_id IS DISTINCT FROM :me`, not `<>`, so messages whose sender was deleted (NULL) still count. With 50 conversations × 10k messages (all unread, the worst case) `GET /conversations` took 111 ms on the dev machine, so the optional partial index `(conversation_id, seq) WHERE deleted_at IS NULL` from M07 was not added.
 - **Updated:** implemented in the conversations API schema (07 `Member` to be read with this addition).
+
+## Found while implementing M08 (2026-09-26)
+
+### Q-017 Presence inside message payloads, and `hello` ordering
+- **Question:** `Message.sender` is a `UserPublic`, which includes `presence`. But message payloads are snapshots that are stored in the outbox and replayed, so a live presence value there would be stale on replay and would cost a lookup per message.
+- **Resolution:** message payloads carry a neutral `presence: {status: "offline", last_seen_at: null}` for the sender. Live presence comes from `UserPublic` in REST user projections (search, profile, conversation previews and member lists, all now filled from `user_presence`), `GET /users/presence`, and `presence.updated` events. The frontend keeps one presence store keyed by user id.
+- **Also fixed:** the gateway queued `hello` only after registering the connection and awaiting a query, so a live event could reach the client *before* `hello`. `hello` is now queued before registration; an event committed in that gap is covered by `hello.latest_event_id` and the M09 sync.
+- **Updated:** implemented in `identity/api/schemas.py` (docstring on `OFFLINE`) and `realtime/gateway.py`.

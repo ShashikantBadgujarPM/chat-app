@@ -51,8 +51,20 @@ class PresenceOut(BaseModel):
     last_seen_at: UtcDateTime | None
 
 
-# Until presence exists (M08), everyone is reported offline with no last-seen time.
+# Used where live presence doesn't apply: message payloads are snapshots that get
+# replayed, so their sender presence is neutral (Q-017). Clients take live presence
+# from UserPublic in REST responses and from presence.updated events.
 OFFLINE = PresenceOut(status="offline", last_seen_at=None)
+
+
+class PresenceItem(BaseModel):
+    user_id: UUID
+    status: Literal["online", "offline"]
+    last_seen_at: UtcDateTime | None
+
+
+class PresenceListResponse(BaseModel):
+    items: list[PresenceItem]
 
 
 class UserPublic(BaseModel):

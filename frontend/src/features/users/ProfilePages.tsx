@@ -3,6 +3,8 @@ import type { FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { ApiError } from '../../api/client'
 import { useAuth } from '../auth/AuthContext'
+import { PresenceDot } from '../presence/PresenceDot'
+import { lastSeenText } from '../presence/presence'
 import { usersApi } from './api'
 import type { UserPublic } from './api'
 
@@ -92,7 +94,14 @@ export function PublicProfilePage() {
     <section>
       <h1>{user.display_name}</h1>
       <p>@{user.username}</p>
-      <p>Status: {user.presence.status}</p>
+      <p>
+        <PresenceDot userId={user.id} initial={user.presence} />{' '}
+        {user.presence.status === 'online'
+          ? 'Online'
+          : user.presence.last_seen_at
+            ? `Last seen ${lastSeenText(user.presence.last_seen_at)}`
+            : 'Offline'}
+      </p>
       <p>
         <Link to="/">Back</Link>
       </p>

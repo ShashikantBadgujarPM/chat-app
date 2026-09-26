@@ -5,6 +5,7 @@ import { ApiError } from '../../api/client'
 import { useAuth } from '../auth/AuthContext'
 import { chatSocket } from '../../ws/ChatSocket'
 import type { SocketStatus } from '../../ws/ChatSocket'
+import { PresenceDot } from '../presence/PresenceDot'
 import { UserSearch } from '../users/UserSearch'
 import type { UserPublic } from '../users/api'
 import { conversationName, conversationsApi } from './api'
@@ -89,6 +90,10 @@ export function ConversationsLayout() {
           {items.map((conversation) => (
             <li key={conversation.id}>
               <NavLink to={`/c/${conversation.id}`}>
+                {conversation.type === 'direct' && (() => {
+                  const other = conversation.members_preview.find((m) => m.id !== me.id)
+                  return other ? <PresenceDot userId={other.id} initial={other.presence} /> : null
+                })()}
                 <span className="name">{conversationName(conversation, me.id)}</span>
                 {conversation.type === 'group' && <small> · {conversation.member_count} members</small>}
                 {conversation.unread_count > 0 && (

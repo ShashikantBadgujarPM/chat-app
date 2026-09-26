@@ -1,5 +1,6 @@
 """Conversation request/response bodies (docs/design/07 §Conversations)."""
 
+from collections.abc import Mapping
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -10,7 +11,7 @@ from app.modules.conversations.domain.model import (
     ConversationView,
     MemberProfile,
 )
-from app.modules.identity.api.schemas import OFFLINE, UserPublic
+from app.modules.identity.api.schemas import OFFLINE, PresenceOut, UserPublic
 from app.platform.schemas import RequestModel, UtcDateTime
 
 Title = Annotated[
@@ -48,12 +49,14 @@ class ReadCursorResponse(BaseModel):
     unread_count: int
 
 
-def _public(member: MemberProfile) -> UserPublic:
+def _public(
+    member: MemberProfile, presence: Mapping[UUID, PresenceOut] | None = None
+) -> UserPublic:
     return UserPublic(
         id=member.user_id,
         username=member.username,
         display_name=member.display_name,
-        presence=OFFLINE,  # real presence arrives in M08
+        presence=(presence or {}).get(member.user_id, OFFLINE),
     )
 
 
@@ -66,9 +69,15 @@ class MemberOut(BaseModel):
     last_read_seq: int | None = None
 
     @classmethod
-    def from_profile(cls, member: MemberProfile, *, receipts: bool = False) -> "MemberOut":
+    def from_profile(
+        cls,
+        member: MemberProfile,
+        *,
+        receipts: bool = False,
+        presence: Mapping[UUID, PresenceOut] | None = None,
+    ) -> "MemberOut":
         return cls(
-            user=_public(member),
+            user=_public(member, presence),
             role=member.role.value,
             joined_at=member.joined_at,
             last_read_seq=member.last_read_seq if receipts else None,
@@ -79,10 +88,16 @@ class MembershipOut(MemberOut):
     notifications_muted: bool
 
     @classmethod
-    def from_profile(cls, member: MemberProfile, *, receipts: bool = True) -> "MembershipOut":
+    def from_profile(
+        cls,
+        member: MemberProfile,
+        *,
+        receipts: bool = True,
+        presence: Mapping[UUID, PresenceOut] | None = None,
+    ) -> "MembershipOut":
         # The caller's own membership: their own read position is always theirs to see.
         return cls(
-            user=_public(member),
+            user=_public(member, presence),
             role=member.role.value,
             joined_at=member.joined_at,
             last_read_seq=member.last_read_seq if receipts else None,
@@ -101,7 +116,9 @@ class ConversationOut(BaseModel):
     my_role: Literal["owner", "member"]
 
     @classmethod
-    def from_view(cls, view: ConversationView) -> "ConversationOut":
+    def from_view(
+        cls, view: ConversationView, presence: Mapping[UUID, PresenceOut] | None = None
+    ) -> "ConversationOut":
         c = view.conversation
         return cls(
             id=c.id,
@@ -109,7 +126,7 @@ class ConversationOut(BaseModel):
             title=c.title,
             created_at=c.created_at,
             last_message_seq=c.last_message_seq,
-            members_preview=[_public(m) for m in view.members_preview],
+            members_preview=[_public(m, presence) for m in view.members_preview],
             member_count=view.member_count,
             my_role=view.my_role.value,
         )
@@ -134,8 +151,10 @@ class ConversationSummaryOut(ConversationOut):
     my_last_read_seq: int
 
     @classmethod
-    def from_view(cls, view: ConversationView) -> "ConversationSummaryOut":
-        base = ConversationOut.from_view(view)
+    def from_view(
+        cls, view: ConversationView, presence: Mapping[UUID, PresenceOut] | None = None
+    ) -> "ConversationSummaryOut":
+        base = ConversationOut.from_view(view, presence)
         last = view.last_message
         return cls(
             **base.model_dump(),

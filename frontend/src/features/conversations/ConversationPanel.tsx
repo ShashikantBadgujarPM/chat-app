@@ -5,6 +5,7 @@ import { ApiError } from '../../api/client'
 import { useAuth } from '../auth/AuthContext'
 import { chatSocket } from '../../ws/ChatSocket'
 import { MessagePane } from '../messages/MessagePane'
+import { PresenceDot } from '../presence/PresenceDot'
 import { UserSearch } from '../users/UserSearch'
 import { conversationName, conversationsApi } from './api'
 import type { Conversation, Member } from './api'
@@ -103,6 +104,7 @@ export function ConversationPanel() {
           key={conversation.id}
           conversationId={conversation.id}
           myId={me.id}
+          memberNames={Object.fromEntries(members.map((m) => [m.user.id, m.user.display_name]))}
           myLastReadSeq={members.find((m) => m.user.id === me.id)?.last_read_seq ?? 0}
           otherReadSeq={
             conversation.type === 'direct'
@@ -153,6 +155,7 @@ function ConversationDetails({
       <ul className="members">
         {members.map((member) => (
           <li key={member.user.id}>
+            <PresenceDot userId={member.user.id} initial={member.user.presence} />
             {member.user.display_name} <small>@{member.user.username}</small>
             {member.role === 'owner' && <small> · owner</small>}
             {isGroup && isOwner && member.user.id !== me && (

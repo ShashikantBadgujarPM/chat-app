@@ -150,6 +150,17 @@ class Socket:
             if frame["type"] == type_:
                 return frame
 
+    async def none_of_type(self, type_: str, seconds: float) -> None:
+        """No frame of `type_` arrives within `seconds` (other frames are ignored)."""
+        deadline = asyncio.get_running_loop().time() + seconds
+        while (remaining := deadline - asyncio.get_running_loop().time()) > 0:
+            try:
+                frame = await self.recv(remaining)
+            except TimeoutError:
+                return
+            if frame["type"] == type_:
+                raise AssertionError(f"expected no {type_}, got {frame}")
+
     async def nothing_within(self, seconds: float) -> None:
         try:
             frame = await self.recv(seconds)
