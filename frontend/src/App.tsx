@@ -2,7 +2,8 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { AuthProvider } from './features/auth/AuthContext'
 import { LoginPage, RegisterPage } from './features/auth/AuthPages'
 import { RequireAuth } from './features/auth/RequireAuth'
-import { HomePage } from './features/home/HomePage'
+import { ConversationPanel, NoConversationSelected } from './features/conversations/ConversationPanel'
+import { ConversationsLayout } from './features/conversations/ConversationsLayout'
 import { MyProfilePage, PublicProfilePage } from './features/users/ProfilePages'
 
 function App() {
@@ -14,29 +15,17 @@ function App() {
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
             <Route
-              path="/"
               element={
                 <RequireAuth>
-                  <HomePage />
+                  <ConversationsLayout />
                 </RequireAuth>
               }
-            />
-            <Route
-              path="/me"
-              element={
-                <RequireAuth>
-                  <MyProfilePage />
-                </RequireAuth>
-              }
-            />
-            <Route
-              path="/users/:userId"
-              element={
-                <RequireAuth>
-                  <PublicProfilePage />
-                </RequireAuth>
-              }
-            />
+            >
+              <Route index element={<NoConversationSelected />} />
+              <Route path="c/:conversationId" element={<ConversationPanel />} />
+              <Route path="me" element={<MyProfilePage />} />
+              <Route path="users/:userId" element={<PublicProfilePage />} />
+            </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </main>

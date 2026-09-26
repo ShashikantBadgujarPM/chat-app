@@ -62,3 +62,10 @@ The implementation agent records spec ambiguities here ([15 §26.3](../design/15
 - **Question:** the failed-login counter, reuse-detection family revocation and their audit rows must survive a failing request, but raising inside `async with uow:` rolls them back.
 - **Resolution:** those use cases return the error from inside the transaction and raise it after the commit (`Login`, `RefreshSession` in `identity/application/services.py`). A unit test with a staging fake UoW pins this.
 - **Updated:** none (pattern documented in the module docstring).
+
+## Found while implementing M04 (2026-09-26)
+
+### Q-012 Where `last_activity_at` is stored
+- **Question:** 07 sorts `GET /conversations` by `last_activity_at`, and M05 says that sort activates once messages exist, but 05 had no column for it. Computing `max(messages.created_at)` at read time can't support keyset pagination cheaply.
+- **Resolution (decided by the user):** a new column, `conversations.last_activity_at timestamptz NOT NULL DEFAULT now()`. It is set at creation, and M05 bumps it in the same `UPDATE` that increments `last_message_seq`, at no extra cost. The list pages by keyset `(last_activity_at DESC, id)`.
+- **Updated:** [05 §conversations](../design/05-database.md).

@@ -91,6 +91,7 @@ Index: `INDEX(expires_at)` for a periodic cleanup job (or just rely on it being 
 | title | text | NULL — NULL for direct; NOT NULL enforced at app layer for group |
 | created_by | UUID | FK → users(id) ON DELETE SET NULL, NULL |
 | last_message_seq | bigint | NOT NULL DEFAULT 0 — monotonic per-conversation counter, source of message ordering |
+| last_activity_at | timestamptz | NOT NULL DEFAULT now() — set at creation; bumped by the message-send transaction in the same `UPDATE` that increments `last_message_seq`. Sorts the conversation list (`last_activity_at DESC, id`) (Q-012) |
 | direct_key | text | NULL, UNIQUE — see below |
 | created_at | timestamptz | NOT NULL DEFAULT now() |
 | updated_at | timestamptz | NOT NULL DEFAULT now() |
